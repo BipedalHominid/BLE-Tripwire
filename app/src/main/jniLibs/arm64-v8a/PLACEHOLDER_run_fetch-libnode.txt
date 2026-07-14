@@ -1,0 +1,2 @@
+libnode.so goes here. It is ~60 MB and not committed.
+Run  scripts/fetch-libnode.sh  from the project root to download it.

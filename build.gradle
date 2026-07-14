@@ -1,0 +1,6 @@
+// Top-level build file. Versions here are the ones I tested this project's config
+// against; if Android Studio asks to upgrade AGP, that's fine — accept it and it
+// will bump the Gradle wrapper to match.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

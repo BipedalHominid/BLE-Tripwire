@@ -1,0 +1,1 @@
+Initial release: passive BLE perimeter tripwire with zone-breach state machine, baseline capture, per-install anonymization keys, and tamper-evident audit chain.

@@ -1,0 +1,1718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BLE Tripwire · Presence Awareness</title>
+<style>
+  :root {
+    --bg:      #05070e;
+    --bg2:     #080b14;
+    --bg3:     #0b0f1a;
+    --bg4:     #111726;
+    --bg5:     #18202f;
+    --accent:  #4ea2ff;
+    --accent-rgb: 78,162,255;
+    --cyan:    #2bd4d4;
+    --cyan-rgb: 43,212,212;
+    --border:  #1d2740;
+    --text:    #e9eef8;
+    --dim:     #8a95b2;
+    --faint:   #545f7d;
+    --green:   #1fcb96;
+    --green-rgb: 31,203,150;
+    --amber:   #ffb547;
+    --amber-rgb: 255,181,71;
+    --red:     #ff4d5e;
+    --red-rgb: 255,77,94;
+    --glow:    0 0 12px rgba(var(--accent-rgb),.45);
+    --mono: 'SF Mono','JetBrains Mono','Fira Code',ui-monospace,Menlo,Consolas,monospace;
+    --sans: 'Inter','SF Pro Text',-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html,body { margin:0; padding:0; }
+  body {
+    font-family: var(--sans);
+    background:
+      linear-gradient(rgba(var(--accent-rgb),.022) 1px, transparent 1px) 0 0 / 46px 46px,
+      linear-gradient(90deg, rgba(var(--accent-rgb),.022) 1px, transparent 1px) 0 0 / 46px 46px,
+      radial-gradient(1200px 620px at 78% -12%, rgba(var(--accent-rgb),.10), transparent 60%),
+      radial-gradient(900px 520px at -5% 112%, rgba(var(--cyan-rgb),.05), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .classbar {
+    text-align:center; font-family:var(--mono); font-size:11px; letter-spacing:4px;
+    font-weight:700; padding:5px; background:#15351f; color:#d7ffe6; user-select:none;
+    border-bottom:1px solid rgba(var(--green-rgb),.35);
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 18px 16px 60px; }
+
+  header.hd {
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin:14px 2px 20px;
+    padding-bottom:14px; border-bottom:1px solid var(--border);
+  }
+  .mark {
+    font-family:var(--mono); font-weight:700; font-size:20px; letter-spacing:5px;
+    color:var(--accent); text-shadow:var(--glow); position:relative; padding-left:14px;
+  }
+  .mark::before {
+    content:""; position:absolute; left:0; top:50%; transform:translateY(-50%);
+    width:5px; height:18px; background:var(--accent); box-shadow:var(--glow); border-radius:1px;
+  }
+  .sub { font-family:var(--mono); font-size:11px; letter-spacing:1.5px; color:var(--faint); text-transform:uppercase; }
+  .localbadge {
+    margin-left:auto; font-family:var(--mono); font-size:10.5px; letter-spacing:1px;
+    color:var(--green); border:1px solid rgba(var(--green-rgb),.4); border-radius:4px;
+    padding:5px 10px; background:rgba(var(--green-rgb),.07); white-space:nowrap;
+  }
+  .localbadge b { color:#bdffe6; font-weight:600; }
+  .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--green); margin-right:6px;
+    box-shadow:0 0 8px var(--green); animation:pulse 2s infinite; vertical-align:middle; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+
+  .loginStage {
+    min-height: calc(100vh - 24px);
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    padding:28px 16px 70px;
+  }
+  .sirenLogoWrap {
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    width:100%;
+    margin:0 auto 18px;
+    pointer-events:none;
+  }
+  .sirenLogo {
+    width:min(360px, 74vw);
+    max-height:360px;
+    object-fit:contain;
+    border-radius:50%;
+    filter:
+      drop-shadow(0 0 18px rgba(var(--accent-rgb),.42))
+      drop-shadow(0 0 38px rgba(var(--cyan-rgb),.20));
+    opacity:.97;
+    user-select:none;
+  }
+  @media (max-width: 520px) {
+    .loginStage { justify-content:flex-start; padding-top:44px; }
+    .sirenLogo { width:min(300px, 78vw); max-height:300px; }
+  }
+
+  /* login */
+  #login { width:min(350px, 100%); max-width:350px; margin:0 auto; background:var(--bg3); border:1px solid var(--border); border-radius:10px; padding:24px; position:relative; box-shadow:0 24px 60px -34px rgba(0,0,0,.9); }
+  #login::before { content:""; position:absolute; inset:0 0 auto 0; height:2px; background:linear-gradient(90deg, transparent, var(--accent), transparent); border-radius:10px 10px 0 0; opacity:.7; }
+  #login h2 { font-family:var(--mono); letter-spacing:3px; font-size:14px; margin:0 0 4px; color:var(--accent); }
+  #login p { color:var(--dim); font-size:12.5px; margin:0 0 16px; }
+  #login label { display:block; font-family:var(--mono); font-size:11px; letter-spacing:1px; color:var(--faint); margin:10px 0 4px; text-transform:uppercase; }
+  #login input { width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:10px 12px; border-radius:6px; font-family:var(--mono); font-size:13px; }
+  #login input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 2px rgba(var(--accent-rgb),.18); }
+  #loginErr { color:var(--red); font-size:12px; min-height:16px; margin-top:8px; font-family:var(--mono); }
+
+  /* signature: signal posture */
+  .posture {
+    border:1px solid var(--border); border-radius:12px; padding:22px 24px 20px; margin-bottom:16px;
+    position:relative; overflow:hidden; transition:border-color .4s, background .4s;
+    background:linear-gradient(180deg, rgba(255,255,255,.014), transparent), var(--bg3);
+    box-shadow:0 18px 50px -34px rgba(0,0,0,.9);
+  }
+  .posture::before {
+    content:""; position:absolute; left:0; top:0; bottom:0; width:4px;
+    background:var(--faint); transition:background .4s, box-shadow .4s;
+  }
+  .posture::after {
+    content:""; position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity .4s;
+    background:repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 3px);
+  }
+  .posture.alert::after { opacity:1; }
+  .posture .plabel { font-family:var(--mono); font-size:11px; letter-spacing:3px; color:var(--faint); text-transform:uppercase; }
+  .posture .pstate { font-family:var(--mono); font-weight:700; font-size:52px; letter-spacing:3px; line-height:1.04; margin:6px 0 4px; }
+  .posture .prationale { color:var(--dim); font-size:13px; max-width:74ch; }
+  .posture .pmeta { margin-top:11px; font-family:var(--mono); font-size:11px; color:var(--faint); letter-spacing:.5px; }
+
+  .pGREEN  { border-color:rgba(var(--green-rgb),.45); background:linear-gradient(180deg, rgba(var(--green-rgb),.05), transparent), var(--bg3); }
+  .pGREEN::before { background:var(--green); box-shadow:0 0 18px var(--green); }
+  .pGREEN  .pstate { color:var(--green); text-shadow:0 0 16px rgba(var(--green-rgb),.5); }
+  .pYELLOW { border-color:rgba(var(--amber-rgb),.5); background:linear-gradient(180deg, rgba(var(--amber-rgb),.06), transparent), var(--bg3); }
+  .pYELLOW::before { background:var(--amber); box-shadow:0 0 18px var(--amber); }
+  .pYELLOW .pstate { color:var(--amber); text-shadow:0 0 16px rgba(var(--amber-rgb),.5); }
+  .pRED    { border-color:rgba(var(--red-rgb),.55); background:linear-gradient(180deg, rgba(var(--red-rgb),.07), transparent), var(--bg3); }
+  .pRED::before { background:var(--red); box-shadow:0 0 20px var(--red); }
+  .pRED    .pstate { color:var(--red); text-shadow:0 0 18px rgba(var(--red-rgb),.6); }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(155px,1fr)); gap:10px; margin-bottom:16px; }
+  .stat { background:var(--bg3); border:1px solid var(--border); border-radius:9px; padding:13px 15px; position:relative; overflow:hidden; transition:border-color .2s; }
+  .stat::before { content:""; position:absolute; top:0; left:0; right:0; height:2px; background:rgba(var(--accent-rgb),.0); transition:background .2s; }
+  .stat:hover { border-color:rgba(var(--accent-rgb),.45); }
+  .stat:hover::before { background:rgba(var(--accent-rgb),.55); }
+  .stat .k { font-family:var(--mono); font-size:10px; letter-spacing:1.5px; color:var(--faint); text-transform:uppercase; }
+  .stat .v { font-family:var(--mono); font-size:27px; font-weight:700; margin-top:3px; }
+  .stat .v small { font-size:12px; color:var(--dim); font-weight:400; }
+
+  .panel {
+    position:relative; background:linear-gradient(180deg, rgba(255,255,255,.012), transparent), var(--bg2);
+    border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin-bottom:16px;
+    box-shadow:0 14px 40px -30px rgba(0,0,0,.9);
+  }
+  .panel::before, .panel::after {
+    content:""; position:absolute; width:13px; height:13px; pointer-events:none;
+    border:1.5px solid rgba(var(--accent-rgb),.5);
+  }
+  .panel::before { top:-1px; left:-1px; border-right:none; border-bottom:none; border-top-left-radius:10px; }
+  .panel::after  { bottom:-1px; right:-1px; border-left:none; border-top:none; border-bottom-right-radius:10px; }
+  .panel > h3 {
+    font-family:var(--mono); font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:var(--accent);
+    margin:0 0 12px; padding-left:12px; position:relative; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  }
+  .panel > h3::before { content:""; position:absolute; left:0; top:1px; bottom:1px; width:3px; background:var(--accent); box-shadow:var(--glow); border-radius:1px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+
+  button.act {
+    font-family:var(--mono); font-size:12px; letter-spacing:1px; text-transform:uppercase;
+    background:var(--bg4); color:var(--text); border:1px solid var(--border); padding:9px 15px; border-radius:6px;
+    cursor:pointer; transition:.15s;
+  }
+  button.act:hover { border-color:var(--accent); color:#fff; box-shadow:0 0 0 1px rgba(var(--accent-rgb),.25); }
+  button.act:disabled { opacity:.45; cursor:not-allowed; }
+  button.primary { background:rgba(var(--accent-rgb),.14); border-color:var(--accent); color:#dcebff; }
+  button.primary:hover { background:rgba(var(--accent-rgb),.22); }
+
+  table { width:100%; border-collapse:collapse; font-family:var(--mono); font-size:12px; }
+  th { text-align:left; color:var(--faint); font-weight:600; font-size:10px; letter-spacing:1px; text-transform:uppercase; padding:7px 8px; border-bottom:1px solid var(--border); }
+  td { padding:8px; border-bottom:1px solid var(--bg4); color:var(--text); }
+  tbody tr:hover td { background:rgba(var(--accent-rgb),.04); }
+  tr.anom td { background:rgba(var(--red-rgb),.07); }
+  tr.anom td:first-child { box-shadow:inset 3px 0 0 var(--red); }
+  .tag { font-family:var(--mono); font-size:10px; padding:1px 6px; border-radius:10px; border:1px solid var(--border); color:var(--dim); }
+  .tag.new { color:var(--red); border-color:rgba(var(--red-rgb),.5); }
+  .tag.base { color:var(--green); border-color:rgba(var(--green-rgb),.4); }
+  .pb-VeryClose { color:var(--red); }
+  .pb-Nearby { color:var(--amber); }
+  .pl-Persistent { color:var(--red); }
+  .pl-Intermittent { color:var(--amber); }
+
+  /* footprint heat map */
+  .heatwrap { position:relative; border:1px solid var(--border); border-radius:8px; overflow:hidden; background:#070b14; line-height:0; }
+  #heatCanvas { width:100%; display:block; }
+  .heatlegend {
+    position:absolute; left:12px; bottom:12px; display:flex; align-items:center; gap:8px;
+    font-family:var(--mono); font-size:9.5px; letter-spacing:1px; color:var(--dim);
+    background:rgba(5,7,14,.62); border:1px solid var(--border); border-radius:5px; padding:5px 8px; line-height:1;
+  }
+  .heatramp { width:96px; height:8px; border-radius:3px;
+    background:linear-gradient(90deg, rgba(40,90,200,.5), #4ea2ff, #2bd4d4, #ffb547, #ff4d5e); }
+  .simbadge {
+    font-family:var(--mono); font-size:9.5px; letter-spacing:1.5px; text-transform:uppercase;
+    color:var(--amber); border:1px dashed rgba(var(--amber-rgb),.55); border-radius:4px; padding:3px 8px;
+    background:rgba(var(--amber-rgb),.07); margin-left:auto;
+  }
+
+  /* product */
+  #productBox { display:none; }
+  .srcbadge { font-family:var(--mono); font-size:10px; letter-spacing:1px; padding:3px 9px; border-radius:4px; text-transform:uppercase; }
+  .src-model { color:#bdffe6; background:rgba(var(--green-rgb),.12); border:1px solid rgba(var(--green-rgb),.5); }
+  .src-gate { color:var(--amber); background:rgba(var(--amber-rgb),.1); border:1px solid rgba(var(--amber-rgb),.5); }
+  .src-fallback { color:var(--dim); background:var(--bg4); border:1px solid var(--border); }
+  .prod h4 { font-family:var(--sans); font-size:17px; margin:6px 0 2px; }
+  .prod .field { margin:13px 0; }
+  .prod .fl { font-family:var(--mono); font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--faint); margin-bottom:4px; }
+  .prod .ft { color:var(--text); font-size:13.5px; }
+  .prod ul { margin:4px 0 0; padding-left:18px; }
+  .prod li { margin:3px 0; color:var(--text); }
+  .risk { display:inline-block; font-family:var(--mono); font-weight:700; padding:2px 10px; border-radius:4px; letter-spacing:1px; }
+  .risk-Low { color:var(--green); background:rgba(var(--green-rgb),.1); }
+  .risk-Moderate { color:var(--amber); background:rgba(var(--amber-rgb),.1); }
+  .risk-High { color:var(--red); background:rgba(var(--red-rgb),.1); }
+  .humanflag { font-family:var(--mono); font-size:11px; color:var(--amber); border:1px dashed rgba(var(--amber-rgb),.5); border-radius:5px; padding:8px 11px; margin-top:12px; letter-spacing:.5px; }
+  .withheld { border:1px solid rgba(var(--amber-rgb),.5); background:rgba(var(--amber-rgb),.06); border-radius:8px; padding:16px; }
+  .withheld .wt { font-family:var(--mono); font-weight:700; letter-spacing:2px; color:var(--amber); font-size:15px; }
+
+  details.script { margin-top:8px; }
+  details.script summary { cursor:pointer; font-family:var(--mono); font-size:11px; letter-spacing:1.5px; color:var(--accent); text-transform:uppercase; }
+  details.script ol { color:var(--dim); font-size:13px; margin:10px 0 0; padding-left:20px; }
+  details.script li { margin:7px 0; }
+  details.script b { color:var(--text); }
+
+  /* engineering decisions */
+  .decisions { display:grid; grid-template-columns:repeat(auto-fit,minmax(245px,1fr)); gap:11px; }
+  .dec { background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:13px 14px; border-left:2px solid rgba(var(--accent-rgb),.6); }
+  .dec .dh { font-family:var(--mono); font-size:11.5px; letter-spacing:.5px; color:#cfe4ff; font-weight:600; margin-bottom:5px; }
+  .dec .dw { color:var(--dim); font-size:12.5px; line-height:1.5; }
+  .dec .dy { color:var(--text); font-size:12px; margin-top:7px; padding-top:7px; border-top:1px solid var(--bg4); }
+  .dec .dy b { color:var(--green); font-family:var(--mono); font-size:10px; letter-spacing:1px; text-transform:uppercase; }
+
+  .muted { color:var(--faint); font-family:var(--mono); font-size:11px; }
+  .err { color:var(--red); font-family:var(--mono); font-size:12px; }
+  @media (prefers-reduced-motion: reduce) { .dot,.posture::after{ animation:none; } }
+  @media (min-width: 521px) {
+    .loginStage { justify-content: center; gap: 80px; }
+    .sirenLogo { width:min(480px, 46vw); max-height:480px; }
+  }
+
+  #signoutBtn { font-size:10px; padding:5px 10px; }
+
+  /* report popup modal */
+  .reportModal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    z-index: 5000;
+  }
+  .reportModal.open { display: block; }
+
+  .reportModalBackdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,.8);
+    backdrop-filter: blur(3px);
+  }
+
+  .reportModalCard {
+    position: relative;
+    width: min(940px, calc(100vw - 28px));
+    max-height: 88vh;
+    margin: 6vh auto;
+    background: var(--bg2);
+    border: 1px solid rgba(var(--accent-rgb),.7);
+    border-radius: 12px;
+    box-shadow:
+      0 20px 80px rgba(0,0,0,.74),
+      0 0 28px rgba(var(--accent-rgb),.18);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .reportModalHead {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .reportModalTitle {
+    font-family: var(--mono);
+    color: var(--accent);
+    letter-spacing: 1.5px;
+    font-size: 12px;
+    text-transform: uppercase;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .reportModalMeta {
+    font-family: var(--mono);
+    color: var(--faint);
+    font-size: 10px;
+    padding: 7px 14px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,0,0,.16);
+  }
+
+  .reportModalBody {
+    overflow: auto;
+    padding: 16px 18px 20px;
+  }
+
+  .reportModalClose,
+  .reportModalCopy,
+  .reportModalPrint {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: var(--bg4);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 9px;
+    cursor: pointer;
+  }
+
+  .reportModalClose:hover,
+  .reportModalCopy:hover,
+  .reportModalPrint:hover {
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  @media(max-width: 640px) {
+    .reportModalCard {
+      width: calc(100vw - 16px);
+      max-height: 92vh;
+      margin: 4vh auto;
+    }
+    .reportModalHead { flex-wrap: wrap; }
+    .reportModalTitle { flex-basis: 100%; }
+  }
+
+  @media print {
+    body * { visibility: hidden !important; }
+    #reportModal, #reportModal * { visibility: visible !important; }
+    #reportModal {
+      display: block !important;
+      position: static !important;
+    }
+    .reportModalBackdrop,
+    .reportModalHead button {
+      display: none !important;
+    }
+    .reportModalCard {
+      box-shadow: none !important;
+      border: none !important;
+      margin: 0 !important;
+      width: 100% !important;
+      max-height: none !important;
+    }
+    .reportModalBody {
+      overflow: visible !important;
+    }
+  }
+
+  /* ---- production status chrome ---- */
+  body { padding-bottom: 26px; }
+  .classbar.classbarBottom { position:fixed; bottom:0; left:0; right:0; z-index:40; border-bottom:none; border-top:1px solid rgba(var(--green-rgb),.35); }
+
+  .opsbar {
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px;
+    font-family:var(--mono); font-size:11px; letter-spacing:.5px;
+    background:var(--bg3); border:1px solid var(--border); border-radius:8px;
+    padding:9px 14px; margin:0 2px 16px;
+  }
+  .opsbar .ob { display:flex; align-items:center; gap:7px; white-space:nowrap; }
+  .opsbar .obk { color:var(--faint); text-transform:uppercase; font-size:9.5px; letter-spacing:1px; }
+  .opsbar .obv { color:var(--text); }
+  .opsbar .obv.accent { color:var(--accent); }
+  .opsbar .right { margin-left:auto; display:flex; align-items:center; gap:8px 16px; flex-wrap:wrap; }
+
+  .link { display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:4px; border:1px solid var(--border); font-size:10px; letter-spacing:1px; }
+  .link .lp { width:7px; height:7px; border-radius:50%; }
+  .link.up    { color:var(--green); border-color:rgba(var(--green-rgb),.45); background:rgba(var(--green-rgb),.07); }
+  .link.up .lp{ background:var(--green); box-shadow:0 0 7px var(--green); animation:pulse 2s infinite; }
+  .link.degraded { color:var(--amber); border-color:rgba(var(--amber-rgb),.5); background:rgba(var(--amber-rgb),.08); }
+  .link.degraded .lp{ background:var(--amber); box-shadow:0 0 7px var(--amber); }
+  .link.down  { color:var(--red); border-color:rgba(var(--red-rgb),.5); background:rgba(var(--red-rgb),.08); }
+  .link.down .lp{ background:var(--red); box-shadow:0 0 7px var(--red); }
+
+  .age-ok { color:var(--green); }
+  .age-warn { color:var(--amber); }
+  .age-stale { color:var(--red); }
+
+  .alertbar { display:flex; flex-direction:column; gap:8px; margin-bottom:16px; max-height:300px; overflow-y:auto; }
+  .alertbar:empty { display:none; }
+  .alertcard {
+    display:flex; align-items:flex-start; gap:12px; padding:12px 14px;
+    border:1px solid rgba(var(--red-rgb),.55); border-radius:9px;
+    background:linear-gradient(180deg, rgba(var(--red-rgb),.10), transparent), var(--bg3);
+  }
+  .alertcard.ackd { border-color:var(--border); background:var(--bg3); opacity:.72; }
+  .alertcard .ai { font-family:var(--mono); flex:1; min-width:0; }
+  .alertcard .at { color:var(--red); font-weight:700; letter-spacing:1.5px; font-size:11px; }
+  .alertcard.ackd .at { color:var(--dim); }
+  .alertcard .ad { color:var(--text); font-size:12px; margin-top:3px; }
+  .alertcard .am { color:var(--faint); font-size:10px; margin-top:4px; }
+  .alertcard .ackbtn {
+    font-family:var(--mono); font-size:10px; letter-spacing:1px; text-transform:uppercase;
+    background:rgba(var(--red-rgb),.14); color:#ffd7db; border:1px solid var(--red);
+    border-radius:5px; padding:7px 12px; cursor:pointer; white-space:nowrap;
+  }
+  .alertcard .ackbtn:hover { background:rgba(var(--red-rgb),.24); }
+
+  .trendpanel { display:flex; align-items:center; gap:14px; }
+  .trendpanel canvas { flex:1; min-width:0; height:64px; display:block; }
+  .trendkpi { font-family:var(--mono); text-align:right; }
+  .trendkpi .tk { color:var(--faint); font-size:9.5px; letter-spacing:1px; text-transform:uppercase; }
+  .trendkpi .tv { font-size:22px; font-weight:700; color:var(--text); }
+
+  .nodegrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:11px; }
+  .node { background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:12px 14px; }
+  .node.pending { border-style:dashed; opacity:.85; }
+  .node .nh { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .node .nid { font-family:var(--mono); font-size:12px; color:#cfe4ff; letter-spacing:.5px; }
+  .node .nrole { font-family:var(--mono); font-size:9.5px; color:var(--faint); letter-spacing:.5px; text-transform:uppercase; margin-top:2px; }
+  .node .nstat { font-family:var(--mono); font-size:9.5px; letter-spacing:1px; padding:2px 7px; border-radius:3px; }
+  .node .nstat.live { color:var(--green); border:1px solid rgba(var(--green-rgb),.45); background:rgba(var(--green-rgb),.07); }
+  .node .nstat.pend { color:var(--amber); border:1px dashed rgba(var(--amber-rgb),.5); background:rgba(var(--amber-rgb),.06); }
+  .node .nrow { display:flex; justify-content:space-between; font-family:var(--mono); font-size:11px; margin-top:8px; }
+  .node .nrow .k { color:var(--faint); }
+  .node .nrow .v { color:var(--text); }
+  .node .nrow .v.pendv { color:var(--amber); }
+  /* RF tripwire */
+  .twrow { display:flex; align-items:center; gap:10px; padding:9px 11px; border:1px solid var(--border); border-radius:7px; margin-bottom:7px; background:var(--bg3); }
+  .twrow .tws { font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:1px; padding:3px 8px; border-radius:4px; white-space:nowrap; }
+  .twrow .twid { font-family:var(--mono); font-size:12px; color:#cfe4ff; }
+  .twrow .twmeta { font-family:var(--mono); font-size:10.5px; color:var(--faint); margin-left:auto; text-align:right; white-space:nowrap; line-height:1.35; }
+  .tw-CLOSING { color:var(--red); border:1px solid var(--red); background:rgba(var(--red-rgb),.16); }
+  .tw-ALERT   { color:var(--red); border:1px solid rgba(var(--red-rgb),.6); background:rgba(var(--red-rgb),.08); }
+  .tw-WATCH   { color:var(--amber); border:1px dashed rgba(var(--amber-rgb),.5); background:rgba(var(--amber-rgb),.06); }
+  .twrow.row-CLOSING { border-color:rgba(var(--red-rgb),.7); box-shadow:inset 3px 0 0 var(--red); }
+  .twrow.row-ALERT { box-shadow:inset 3px 0 0 rgba(var(--red-rgb),.7); }
+  .twcount { font-family:var(--mono); font-size:11px; padding:4px 10px; border-radius:5px; border:1px solid var(--border); color:var(--text); }
+
+
+  #aboutBtn { font-size:10px; padding:5px 10px; }
+  .aboutSec { margin-bottom:18px; }
+  .aboutSec h4 { font-family:var(--mono); font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--accent); margin:0 0 10px; }
+  .kv { font-family:var(--mono); font-size:12px; display:grid; grid-template-columns:max-content 1fr; gap:5px 16px; }
+  .kv .k { color:var(--faint); }
+  .kv .v { color:var(--text); }
+
+
+/* ---- responsive polish (additive) ---- */
+/* coarse-pointer (touch) targets: comfortable tap height */
+@media (pointer: coarse) {
+  button.act { min-height: 44px; }
+  .node .nstat, .twcount { line-height: 1.6; }
+}
+
+/* tablet / mid widths */
+@media (max-width: 820px) {
+  .wrap { padding: 14px 12px 64px; }
+  .posture .pstate { font-size: 44px; }
+}
+
+/* phones */
+@media (max-width: 560px) {
+  body { font-size: 13.5px; }
+  header.hd { gap: 10px; margin: 10px 2px 16px; }
+  .mark { font-size: 18px; letter-spacing: 4px; }
+  /* badge was nowrap + margin-left:auto -> overflowed; let it drop to its own line */
+  .localbadge {
+    margin-left: 0;
+    flex-basis: 100%;
+    white-space: normal;
+    line-height: 1.4;
+  }
+  /* keep About / Sign out reachable, not crammed against the badge */
+  header.hd .act { order: 3; }
+
+  .opsbar { gap: 6px 12px; padding: 8px 11px; }
+  .opsbar .right { margin-left: 0; flex-basis: 100%; gap: 6px 12px; }
+
+  .posture { padding: 18px 16px 16px; }
+  .posture .pstate { font-size: 34px; letter-spacing: 2px; }
+  .posture .prationale { font-size: 12.5px; }
+
+  /* single-column stat + node grids read better than cramped 2-up on small phones */
+  .grid { grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 8px; }
+  .stat .v { font-size: 23px; }
+
+  .panel { padding: 14px 13px; }
+  .panel > h3 { font-size: 11px; letter-spacing: 2px; }
+
+  /* tripwire row: let the right-hand meta wrap instead of clipping off-screen */
+  .twrow { flex-wrap: wrap; }
+  .twrow .twmeta { margin-left: 0; flex-basis: 100%; text-align: left; white-space: normal; }
+  .twcount { font-size: 10.5px; padding: 4px 8px; }
+
+  /* trend panel: stack the KPI under the canvas so the sparkline keeps width */
+  .trendpanel { flex-direction: column; align-items: stretch; gap: 8px; }
+  .trendkpi { text-align: left; }
+
+  /* prevent iOS auto-zoom on focus */
+  #login input { font-size: 16px; }
+}
+
+</style>
+</head>
+<body>
+<div class="classbar" id="classTop">UNCLASSIFIED</div>
+
+<!-- LOGIN GATE -->
+<div class="loginStage" id="loginStage">
+  <div class="sirenLogoWrap" id="sirenLogoWrap">
+    <img class="sirenLogo" src="siren.png" alt="Project Forge Siren logo" />
+  </div>
+<div id="login">
+  <h2>BLE TRIPWIRE</h2>
+  <p>Operator sign-in required to read sensor intelligence.</p>
+  <label for="u">Username</label>
+  <input id="u" autocomplete="username" />
+  <label for="p">Password</label>
+  <input id="p" type="password" autocomplete="current-password" />
+  <div id="loginErr"></div>
+  <div style="margin-top:14px"><button class="act primary" id="loginBtn" style="width:100%">Sign in</button></div>
+</div>
+</div>
+
+<!-- DASHBOARD -->
+<div class="wrap" id="app" style="display:none">
+  <header class="hd">
+    <span class="mark">BLE TRIPWIRE</span>
+    <span class="sub">Passive BLE Emissions Awareness</span>
+    <span class="localbadge"><span class="dot"></span>LOCAL · <b id="modelName">local model</b> · RTX 4090 · NO CLOUD</span>
+    <button class="act" id="aboutBtn">About</button>
+    <button class="act" id="signoutBtn">Sign out</button>
+  </header>
+
+  <!-- ops strip: site context, operator, link state, UTC timestamp -->
+  <div class="opsbar" id="opsbar">
+    <div class="ob"><span class="obk">Site</span><span class="obv" id="obSite">—</span></div>
+    <div class="ob"><span class="obk">AO</span><span class="obv" id="obAO">—</span></div>
+    <div class="ob"><span class="obk">GRID</span><span class="obv" id="obMGRS">—</span></div>
+    <div class="ob"><span class="obk">Operator</span><span class="obv accent" id="obOp">—</span></div>
+    <div class="right">
+      <span class="link down" id="linkBadge"><span class="lp"></span><span id="linkText">INIT</span></span>
+      <div class="ob"><span class="obk">Feed</span><span class="obv" id="obAge">—</span></div>
+      <div class="ob"><span class="obk">DTG</span><span class="obv" id="obDTG">—</span></div>
+    </div>
+  </div>
+
+  <!-- SIGNATURE: signal posture -->
+  <div class="posture pGREEN" id="posture">
+    <div class="plabel">Signal Posture · Zone Emissions State</div>
+    <div class="pstate" id="pState">—</div>
+    <div class="prationale" id="pRationale">Awaiting sensor data…</div>
+    <div class="pmeta" id="pMeta"></div>
+  </div>
+
+  <!-- alert + acknowledgment feed (RED escalations) -->
+  <div class="alertbar" id="alertbar"></div>
+
+  <!-- RF TRIPWIRE: unknown-emitter watch -->
+  <div class="panel" id="twPanel">
+    <h3>RF Tripwire <span class="muted" id="twMeta">· unknown-emitter watch</span>
+      <button class="act" id="twAudio" style="margin-left:auto;font-size:10px;padding:4px 9px">Audible: off</button>
+    </h3>
+    <div class="row" id="twCounts" style="margin-bottom:10px"></div>
+    <div id="twList"><div class="muted">Awaiting sensor data…</div></div>
+  </div>
+
+
+  <!-- live metrics -->
+  <div class="grid" id="stats"></div>
+
+  <!-- activity trend -->
+  <div class="panel">
+    <h3>Activity Trend <span class="muted">· distinct emitters · last 60 min</span></h3>
+    <div class="trendpanel">
+      <canvas id="trendCanvas" width="760" height="64"></canvas>
+      <div class="trendkpi"><div class="tk">Now</div><div class="tv" id="trendNow">0</div></div>
+    </div>
+  </div>
+
+  <!-- baseline / anomaly -->
+  <div class="panel">
+    <h3>Baseline &amp; Deviation</h3>
+    <div class="row">
+      <button class="act" id="baseBtn">Capture baseline</button>
+      <button class="act" id="baseClear">Clear baseline</button>
+      <span class="muted" id="baseInfo">No baseline captured. Capture during a known-quiet period to detect new emitters.</span>
+    </div>
+  </div>
+
+  <!-- device table -->
+  <div class="panel">
+    <h3>Observed Emitters <span class="muted" id="winLabel"></span></h3>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Bluetooth ID</th><th>Name</th><th>Anon ID</th><th>Class (est.)</th><th>Proximity</th><th>Persistence</th><th>Avg dBm</th><th>Conf.</th><th>State</th>
+        </tr></thead>
+        <tbody id="devRows"><tr><td colspan="9" class="muted">No emitters in window.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- sensor network -->
+  <div class="panel">
+    <h3>Sensor Network <span class="muted">· edge nodes</span></h3>
+    <div class="nodegrid" id="nodegrid"></div>
+  </div>
+
+  <!-- footprint heat map (SIMULATED — triangulation pending 3rd node) -->
+  <div class="panel">
+    <h3>Footprint Heat Map <span class="simbadge" id="heatSimBadge">SIMULATED POSITION · ILLUSTRATIVE</span></h3>
+    <div class="heatwrap" id="heatWrap">
+      <canvas id="heatCanvas" width="900" height="420"></canvas>
+      <div class="heatlegend">
+        <span>LOW</span><div class="heatramp"></div><span>HIGH</span>
+      </div>
+    </div>
+    <div class="row" style="margin-top:11px">
+      <button class="act" id="heatSim">Synthetic overlay: off</button>
+      <span class="muted" id="heatMeta">RSSI-derived footprint from 2 live nodes. True position fixes require a 3rd node (ESP32-BLE-03) for triangulation.</span>
+    </div>
+  </div>
+
+  <!-- operator product -->
+  <div class="panel">
+    <h3>Decision-Support Report</h3>
+    <div class="row" style="margin-bottom:6px">
+      <button class="act primary" id="genBtn">Generate product</button>
+      <button class="act" id="verifyBtn">Verify audit chain</button>
+      <span class="muted" id="genInfo">Local model writes a operator-facing brief from the bounded analysis summary.</span>
+    </div>
+    <div id="productBox" style="margin-top:14px"></div>
+  </div>
+
+  <div style="margin-top:18px" class="muted" id="footer"></div>
+</div>
+
+
+<!-- REPORT POPUP MODAL -->
+<div id="reportModal" class="reportModal" aria-hidden="true">
+  <div id="reportModalBackdrop" class="reportModalBackdrop"></div>
+  <div class="reportModalCard" role="dialog" aria-modal="true" aria-labelledby="reportModalTitle">
+    <div class="reportModalHead">
+      <div id="reportModalTitle" class="reportModalTitle">Decision-Support Report</div>
+      <button id="reportModalCopy" class="reportModalCopy" type="button">Copy</button>
+      <button id="reportModalPrint" class="reportModalPrint" type="button">Print</button>
+      <button id="reportModalClose" class="reportModalClose" type="button">Close</button>
+    </div>
+    <div id="reportModalMeta" class="reportModalMeta"></div>
+    <div id="reportModalBody" class="reportModalBody"></div>
+  </div>
+</div>
+
+<!-- ABOUT / SYSTEM INFO (pitch + design rationale live here, off the operator board) -->
+<div id="aboutModal" class="reportModal" aria-hidden="true">
+  <div class="reportModalBackdrop" id="aboutBackdrop"></div>
+  <div class="reportModalCard" role="dialog" aria-modal="true">
+    <div class="reportModalHead">
+      <div class="reportModalTitle">System Information</div>
+      <button id="aboutClose" class="reportModalClose" type="button">Close</button>
+    </div>
+    <div class="reportModalBody">
+      <div class="aboutSec">
+        <h4>Build</h4>
+        <div class="kv" id="aboutBuild"></div>
+      </div>
+      <div class="aboutSec">
+        <h4>Design Decisions</h4>
+        <div class="decisions" id="decisions"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="classbar classbarBottom" id="classBottom">UNCLASSIFIED</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+// ON-DEVICE: the WebView loads this page from the in-app Node server, so
+// location.origin is already http://127.0.0.1:8734 and relative calls would work
+// on their own. We still pin an explicit base (per the port change) so the page
+// also works if opened from file:// or from another device on the phone hotspot.
+// If you change the server PORT, change it here too.
+const API_BASE =
+  (location.origin && location.origin.startsWith("http"))
+    ? location.origin
+    : "http://127.0.0.1:8734";
+const API = {
+  intel:  API_BASE + "/api/sensors/ble-tripwire/intel",
+  process:API_BASE + "/api/sensors/ble-tripwire/process",
+  verify: API_BASE + "/api/sensors/ble-tripwire/audit/verify",
+  status: API_BASE + "/api/sensors/ble-tripwire/status",
+  baseline: API_BASE + "/api/sensors/ble-tripwire/baseline",
+  baselineCapture: API_BASE + "/api/sensors/ble-tripwire/baseline/capture",
+  threats: API_BASE + "/api/sensors/ble-tripwire/threats",
+};
+let AUTH = (() => { try { return sessionStorage.getItem("bs_auth") || null; } catch { return null; } })();
+let baseline = null;      // {ids:Set, count, ts} captured client-side
+let pollTimer = null;
+let lastAnalysis = {};    // most recent analysis payload (for heat map redraws)
+
+/* operator-set site config (front-end only; not sensor-derived) — edit for your install */
+const CLASSIFICATION = { text: "UNCLASSIFIED", color: "#15351f", fg: "#d7ffe6" };
+const SITE = { name: "BLE TRIPWIRE NODE", ao: "COVERAGE AREA", mgrs: "—", operatorRole: "Sensor Operator" };
+const BUILD = { version: "1.0.1", channel: "production", mode: "2-node position estimate" };
+
+let OPERATOR = "";
+let STATUS = {};
+let net = { lastOk: 0, fails: 0, lastLatency: null };
+let history = [];
+let alerts = [];
+let lastLevel = null;
+let clockTimer = null;
+
+function authedFetch(url, opts={}) {
+  const o = { ...opts, headers: { ...(opts.headers||{}) } };
+  if (AUTH) o.headers.Authorization = AUTH;
+  return fetch(url, o);
+}
+
+/* ---------- login ---------- */
+async function doLogin() {
+  const u = $("u").value.trim(), p = $("p").value;
+  $("loginErr").textContent = "";
+  if (!u || !p) { $("loginErr").textContent = "Enter username and password."; return; }
+  const test = "Basic " + btoa(u + ":" + p);
+  try {
+    const r = await fetch(API.intel, { headers: { Authorization: test } });
+    if (r.status === 401) { $("loginErr").textContent = "Invalid credentials."; return; }
+    if (!r.ok) { $("loginErr").textContent = "Server error " + r.status + "."; return; }
+    AUTH = test;
+    try { sessionStorage.setItem("bs_auth", test); } catch (e) {}
+    OPERATOR = u;
+    try { sessionStorage.setItem("bs_user", u); } catch (e) {}
+    $("login").style.display = "none";
+    if ($("loginStage")) $("loginStage").style.display = "none";
+    $("app").style.display = "block";
+    renderDecisions();
+    initSiteUI();
+    loadStatus();
+    loadBaseline();
+    startPolling();
+  } catch (e) { $("loginErr").textContent = "Cannot reach server: " + e.message; }
+}
+
+/* ---------- status ---------- */
+async function loadStatus() {
+  try {
+    const r = await authedFetch(API.status);
+    if (!r.ok) return;
+    const d = await r.json();
+    STATUS = d || {};
+    if (d.model) $("modelName").textContent = d.model;
+    renderNodes();
+  } catch { /* leave placeholder */ }
+}
+
+/* ---------- polling ---------- */
+function startPolling() { refresh(); startHeatAnim(); pollTimer = setInterval(refresh, 3000); }
+
+async function refresh() {
+  const t0 = Date.now();
+  try {
+    const r = await authedFetch(API.intel);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    net.lastOk = Date.now(); net.fails = 0; net.lastLatency = net.lastOk - t0;
+    await loadStatus();
+    render(d.analysis || {});
+    loadThreats();
+  } catch (e) {
+    net.fails++;
+    $("pRationale").innerHTML = '<span class="err">Sensor read failed: ' + esc(e.message) + '</span>';
+  }
+  renderOpsBar();
+}
+
+/* ---------- posture scoring (client-side, emissions only) ---------- */
+/* One canonical baseline-membership test used by BOTH posture scoring and
+   the emitter table. The backend baseline stores device_ids as anonymized_id
+   (see buildTripwireBaseline in lib/tripwire-intel.js), so that key
+   is checked first; the raw bluetooth id is accepted as a fallback so the
+   check stays correct if the server-side ID space ever changes. */
+function inBaseline(d) {
+  if (!baseline) return false;
+  const keys = [d?.anonymized_id, bluetoothId(d)].filter(k => k && k !== "—");
+  return keys.some(k => baseline.ids.has(k));
+}
+
+function scorePosture(a) {
+  const devices = a.devices || [];
+  const total = a.total_devices || 0;
+  const persistent = a.persistent_devices || 0;
+  const veryClose = devices.filter(d => d.proximity_band === "Very Close").length;
+
+  const newCount = baseline ? devices.filter(d => !inBaseline(d)).length : 0;
+  const overBase = baseline ? Math.max(0, total - baseline.count) : 0;
+
+  const triggers = [];
+  if (persistent >= 1) triggers.push(persistent + " persistent emitter(s)");
+  if (veryClose >= 1) triggers.push(veryClose + " at very-close range");
+  if (baseline && newCount) triggers.push(newCount + " new emitter(s) vs baseline");
+  else if (baseline && overBase) triggers.push(overBase + " above baseline count");
+
+  let level = "GREEN";
+  if (total === 0) {
+    level = "GREEN";
+  } else if ((persistent >= 3 && veryClose >= 1) || newCount >= 3) {
+    level = "RED";
+  } else if (persistent >= 1 || veryClose >= 1 || newCount >= 1 || overBase > 0) {
+    level = "YELLOW";
+  }
+
+  let rationale;
+  if (total === 0) rationale = "No Bluetooth/BLE emissions detected in the monitored window. Posture consistent with a quiet RF environment.";
+  else if (triggers.length) rationale = "Elevated by: " + triggers.join("; ") + ".";
+  else rationale = total + " emitter(s) observed, none persistent or close; within expected ambient activity.";
+
+  return { level, rationale, newCount };
+}
+
+/* ---------- render ---------- */
+function render(a) {
+  const s = scorePosture(a);
+  lastAnalysis = a;
+
+  const box = $("posture");
+  box.className = "posture p" + s.level + (s.level !== "GREEN" ? " alert" : "");
+  $("pState").textContent = s.level === "GREEN" ? "GREEN" : s.level === "YELLOW" ? "YELLOW" : "RED";
+  $("pRationale").textContent = s.rationale;
+  $("pMeta").textContent =
+    "window " + (a.window_minutes ?? "—") + " min · " +
+    (a.total_observations ?? 0) + " obs · updated " + nowClock() +
+    (baseline ? " · baseline active" : " · no baseline");
+
+  // stats
+  $("stats").innerHTML = [
+    statCard("Distinct emitters", a.total_devices ?? 0),
+    statCard("Persistent", a.persistent_devices ?? 0, "pl-Persistent"),
+    statCard("Intermittent", a.intermittent_devices ?? 0, "pl-Intermittent"),
+    statCard("Transient", a.transient_devices ?? 0),
+    statCard("Strongest", a.strongest_device ? (a.strongest_device.rssi_avg_dbm + " dBm") : "—",
+             a.strongest_device && a.strongest_device.proximity_band === "Very Close" ? "pb-VeryClose" : ""),
+  ].join("");
+
+  $("winLabel").textContent = a.devices && a.devices.length ? ("· " + a.devices.length + " in window") : "";
+
+  // table — uses the same inBaseline() test as scorePosture so the NEW tags
+  // and the posture level can never disagree on the same data
+  const devices = (a.devices || []);
+  if (!devices.length) {
+    $("devRows").innerHTML = '<tr><td colspan="9" class="muted">No emitters in window.</td></tr>';
+  } else {
+    $("devRows").innerHTML = devices.map(d => {
+      const isNew = baseline ? !inBaseline(d) : false;
+      const state = !baseline ? "" :
+        isNew ? '<span class="tag new">NEW</span>' : '<span class="tag base">baseline</span>';
+      const pbClass = "pb-" + String(d.proximity_band || "").replace(/[^a-z]/gi,"");
+      const plClass = "pl-" + String(d.persistence_level || "");
+      return '<tr class="' + (isNew ? "anom" : "") + '">' +
+        '<td>' + esc(bluetoothId(d)) + '</td>' +
+        '<td>' + esc(deviceName(d) || "—") + '</td>' +
+        '<td>' + esc(d.anonymized_id || "—") + '</td>' +
+        '<td>' + esc(d.device_class_estimate) + '</td>' +
+        '<td class="' + pbClass + '">' + esc(d.proximity_band) + '</td>' +
+        '<td class="' + plClass + '">' + esc(d.persistence_level) + '</td>' +
+        '<td>' + (d.rssi_avg_dbm ?? "—") + '</td>' +
+        '<td>' + esc(d.confidence) + '</td>' +
+        '<td>' + state + '</td></tr>';
+    }).join("");
+  }
+
+  pushHistory(a, s.level);
+  renderTrend();
+  evaluateAlerts(s);
+  renderNodes();
+  renderHeatmap(a);
+}
+
+function statCard(k, v, cls) {
+  return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v ' + (cls||"") + '">' + esc(String(v)) + '</div></div>';
+}
+
+/* ============================================================
+   FOOTPRINT HEAT MAP  —  SIMULATED / TRIANGULATION PENDING
+   ------------------------------------------------------------
+   This layer derives blob positions from REAL observed emitters
+   (RSSI -> radial distance, persistence/proximity -> intensity),
+   but the angular component is faked with a stable per-device
+   seed because true position fixes need a 3rd node. When the
+   physical ESP32-BLE-03 comes online, replace emittersToPoints()
+   with real triangulated {x,y} from the backend — nothing else
+   in this file needs to change.
+   ============================================================ */
+const HEAT = {
+  simField: false,
+  palette: null,
+  nodes: [
+    { id: "ESP32-BLE-01", x: 0.17, y: 0.80, live: true  },
+    { id: "ESP32-BLE-02", x: 0.83, y: 0.76, live: true  },
+    { id: "ESP32-BLE-03", x: 0.50, y: 0.15, live: false }, // pending — enables triangulation
+  ],
+};
+
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+
+function hashStr(s) {
+  let h = 2166136261 >>> 0;
+  s = String(s);
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) / 4294967295;
+}
+
+function buildHeatPalette() {
+  const stops = [
+    [0.00, [0, 0, 0, 0]],
+    [0.16, [40, 90, 200, 95]],
+    [0.36, [78, 162, 255, 155]],
+    [0.56, [43, 212, 212, 195]],
+    [0.76, [255, 181, 71, 225]],
+    [1.00, [255, 77, 94, 255]],
+  ];
+  const lut = new Uint8ClampedArray(256 * 4);
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    let a = stops[0], b = stops[stops.length - 1];
+    for (let sIdx = 0; sIdx < stops.length - 1; sIdx++) {
+      if (t >= stops[sIdx][0] && t <= stops[sIdx + 1][0]) { a = stops[sIdx]; b = stops[sIdx + 1]; break; }
+    }
+    const span = (b[0] - a[0]) || 1, k = (t - a[0]) / span;
+    for (let c = 0; c < 4; c++) lut[i * 4 + c] = Math.round(a[1][c] + (b[1][c] - a[1][c]) * k);
+  }
+  return lut;
+}
+
+function emittersToPoints(a, W, H) {
+  const pts = [];
+  const cx = W * 0.5, cy = H * 0.52;
+  const devices = (a && a.devices) || [];
+  const t = Date.now() / 9000;
+  devices.forEach(d => {
+    const id = d.anonymized_id || bluetoothId(d) || "x";
+    const ang = hashStr(id) * Math.PI * 2;
+
+    const band = d.proximity_band || "";
+    let radial = band === "Very Close" ? 0.16 : band === "Nearby" ? 0.34 : 0.52;
+    const rssi = Number(d.rssi_avg_dbm);
+    if (!Number.isNaN(rssi)) radial = clamp(radial + ((-55 - rssi) / 120), 0.08, 0.62);
+
+    const drift = 0.012 * Math.sin(t + hashStr(id + "d") * 6.283); // gentle seeded breathing, no per-frame randomness
+    const rr = radial + drift;
+    const x = cx + Math.cos(ang) * rr * W * 0.9;
+    const y = cy + Math.sin(ang) * rr * H * 0.80;
+
+    let inten = 0.35;
+    const pl = d.persistence_level || "";
+    if (pl === "Persistent") inten = 0.95; else if (pl === "Intermittent") inten = 0.6;
+    if (band === "Very Close") inten = Math.min(1, inten + 0.15);
+
+    const radius = Math.min(W, H) * 0.16 * (0.7 + 0.6 * inten);
+    pts.push({ x, y, intensity: clamp(inten, 0.12, 1), radius });
+  });
+  return pts;
+}
+
+function simPoints(W, H) {
+  const t = Date.now() / 7000;
+  const seeds = [
+    [0.30, 0.55, 0.92], [0.62, 0.40, 0.74], [0.48, 0.66, 1.0],
+    [0.72, 0.62, 0.50], [0.38, 0.38, 0.62], [0.55, 0.50, 0.85],
+  ];
+  return seeds.map((s, i) => {
+    const dx = 0.018 * Math.sin(t + i), dy = 0.018 * Math.cos(t * 1.1 + i);
+    return { x: (s[0] + dx) * W, y: (s[1] + dy) * H, intensity: s[2], radius: Math.min(W, H) * 0.16 * (0.8 + 0.5 * s[2]) };
+  });
+}
+
+function drawHeatGrid(ctx, W, H) {
+  ctx.save();
+  ctx.fillStyle = "#070b14"; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "rgba(78,162,255,0.08)"; ctx.lineWidth = 1;
+  const step = Math.max(30, W / 22);
+  for (let x = step; x < W; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = step; y < H; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  ctx.strokeStyle = "rgba(78,162,255,0.28)"; ctx.lineWidth = 1.5;
+  ctx.strokeRect(8, 8, W - 16, H - 16);
+  ctx.restore();
+}
+
+function drawNodeMarker(ctx, x, y, color, label, dashed) {
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(Math.PI / 4);
+  const s = 7;
+  if (dashed) {
+    ctx.setLineDash([3, 3]); ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+    ctx.strokeRect(-s, -s, 2 * s, 2 * s);
+  } else {
+    ctx.shadowColor = color; ctx.shadowBlur = 10;
+    ctx.fillStyle = color; ctx.fillRect(-s, -s, 2 * s, 2 * s);
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.font = "10px ui-monospace, monospace";
+  ctx.fillStyle = dashed ? "rgba(255,181,71,0.92)" : "rgba(189,222,255,0.92)";
+  ctx.textAlign = "center";
+  ctx.fillText(label, x, y + 22);
+  ctx.restore();
+}
+
+function drawSensorNodes(ctx, W, H) {
+  ctx.save();
+  const N = HEAT.nodes.map(n => ({ ...n, px: n.x * W, py: n.y * H }));
+  const live = N.filter(n => n.live);
+  const pend = N.find(n => !n.live);
+
+  live.forEach(n => {
+    ctx.beginPath(); ctx.arc(n.px, n.py, Math.min(W, H) * 0.30, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(78,162,255,0.13)"; ctx.lineWidth = 1; ctx.stroke();
+    drawNodeMarker(ctx, n.px, n.py, "#4ea2ff", n.id, false);
+  });
+
+  if (pend && live.length >= 2) {
+    ctx.setLineDash([5, 5]); ctx.strokeStyle = "rgba(255,181,71,0.32)"; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(live[0].px, live[0].py); ctx.lineTo(pend.px, pend.py);
+    ctx.moveTo(live[1].px, live[1].py); ctx.lineTo(pend.px, pend.py);
+    ctx.moveTo(live[0].px, live[0].py); ctx.lineTo(live[1].px, live[1].py);
+    ctx.stroke(); ctx.setLineDash([]);
+    drawNodeMarker(ctx, pend.px, pend.py, "#ffb547", pend.id + " · PENDING", true);
+  }
+  ctx.restore();
+}
+
+function updateHeatMeta(count, simmed) {
+  const m = $("heatMeta"); if (!m) return;
+  const live = HEAT.nodes.filter(n => n.live).length;
+  if (simmed) {
+    m.innerHTML = '<span style="color:var(--amber)">Synthetic overlay shown — no live emitters in window.</span> Positions are illustrative, not sensor-derived.';
+    return;
+  }
+  if (count === 0) {
+    m.textContent = "No emitters in window. Enable Synthetic overlay to preview the footprint layer.";
+    return;
+  }
+  m.innerHTML = count + " emitter(s) shown · " + live + " live node(s). " +
+    '<span style="color:var(--amber)">Positions are simulated (RSSI proxy + seeded angle), not triangulated — illustrative only.</span>';
+}
+
+function renderHeatmap(a) {
+  const cv = $("heatCanvas"); if (!cv) return;
+  const wrap = $("heatWrap"); if (!wrap) return;
+
+  const W = cv.width = Math.max(320, Math.round(wrap.clientWidth || 900));
+  const H = cv.height = Math.round(W * 0.46);
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+
+  drawHeatGrid(ctx, W, H);
+
+  if (!HEAT.palette) HEAT.palette = buildHeatPalette();
+
+  let pts = emittersToPoints(a, W, H);
+  let simmed = false;
+  if (pts.length === 0 && HEAT.simField) { pts = simPoints(W, H); simmed = true; }
+
+  if (pts.length) {
+    const buf = document.createElement("canvas"); buf.width = W; buf.height = H;
+    const b = buf.getContext("2d"); b.clearRect(0, 0, W, H);
+    pts.forEach(p => {
+      const g = b.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.radius);
+      g.addColorStop(0, "rgba(0,0,0," + p.intensity + ")");
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      b.fillStyle = g; b.beginPath(); b.arc(p.x, p.y, p.radius, 0, Math.PI * 2); b.fill();
+    });
+    const img = b.getImageData(0, 0, W, H);
+    const data = img.data, lut = HEAT.palette;
+    for (let i = 0; i < data.length; i += 4) {
+      const al = data[i + 3];
+      if (al === 0) continue;
+      const idx = al * 4;
+      data[i] = lut[idx]; data[i + 1] = lut[idx + 1]; data[i + 2] = lut[idx + 2]; data[i + 3] = lut[idx + 3];
+    }
+    b.putImageData(img, 0, 0);
+    ctx.globalAlpha = 0.92; ctx.drawImage(buf, 0, 0); ctx.globalAlpha = 1;
+  }
+
+  drawSensorNodes(ctx, W, H);
+  updateHeatMeta(pts.length, simmed);
+}
+
+/* throttled animation loop so the seeded drift in emittersToPoints() /
+   simPoints() actually breathes between the 3s polls instead of jumping.
+   ~8 fps is plenty for a slow drift and keeps canvas cost negligible;
+   rAF auto-pauses when the tab is backgrounded. */
+let _heatAnimId = null, _heatAnimLast = 0;
+function heatAnimTick(ts) {
+  _heatAnimId = requestAnimationFrame(heatAnimTick);
+  if (ts - _heatAnimLast < 120) return;
+  const hasPts = HEAT.simField || ((lastAnalysis.devices || []).length > 0);
+  if (!hasPts) return; // static empty grid already drawn by render()
+  _heatAnimLast = ts;
+  renderHeatmap(lastAnalysis);
+}
+function startHeatAnim() { if (_heatAnimId === null) _heatAnimId = requestAnimationFrame(heatAnimTick); }
+
+/* ---------- engineering decisions ---------- */
+const DECISIONS = [
+  { h: "Knows when NOT to answer",
+    w: "A data-sufficiency gate refuses to produce a confident assessment on thin or stale data.",
+    y: "Most systems always output something. This one withholds and says why — the failure mode behind real-world AI targeting errors." },
+  { h: "Tamper-evident audit chain",
+    w: "Every decision — and every withheld non-decision — is written to an HMAC-keyed hash chain.",
+    y: "Edit or delete any entry and verification breaks at that index. Accountability as architecture (NIST 800-53 AU)." },
+  { h: "Local-only, zero cloud egress",
+    w: "Inference runs on-box (local model on an RTX 4090). No external calls, no third-party APIs.",
+    y: "Deployable inside a disconnected or classified boundary — the environment the work actually lives in." },
+  { h: "Degrades, never crashes",
+    w: "If the model is unreachable or returns bad JSON, a deterministic product is produced instead of a 500.",
+    y: "The pipeline stays up and still audits the event. Failure handling designed in, not discovered in prod." },
+  { h: "Human-in-the-loop enforced",
+    w: "Every product carries human_decision_required = true. The system advises; it never acts.",
+    y: "Advisory by construction — no autonomous effects, enforced in code rather than left to policy." },
+];
+function renderDecisions() {
+  $("decisions").innerHTML = DECISIONS.map(d =>
+    '<div class="dec"><div class="dh">' + esc(d.h) + '</div>' +
+    '<div class="dw">' + esc(d.w) + '</div>' +
+    '<div class="dy"><b>Why it matters</b><br>' + esc(d.y) + '</div></div>'
+  ).join("");
+}
+
+function setClientBaselineFromServer(baselineObj) {
+  if (!baselineObj || !Array.isArray(baselineObj.device_ids)) {
+    baseline = null;
+    $("baseInfo").textContent = "No backend baseline captured. Capture during a known-quiet period to detect new emitters.";
+    return;
+  }
+
+  baseline = {
+    ids: new Set(baselineObj.device_ids),
+    count: baselineObj.total_devices || baselineObj.device_ids.length || 0,
+    ts: baselineObj.captured_at ? new Date(baselineObj.captured_at) : new Date(),
+    server: true,
+  };
+
+  $("baseInfo").textContent =
+    "Backend baseline: " + baseline.count + " emitter(s) captured at " +
+    baseline.ts.toLocaleTimeString() + " by " +
+    (baselineObj.captured_by || "operator") + ".";
+}
+
+async function loadBaseline() {
+  try {
+    const r = await authedFetch(API.baseline);
+    if (!r.ok) return;
+    const d = await r.json();
+    setClientBaselineFromServer(d.baseline);
+  } catch {
+    // leave current UI baseline state alone
+  }
+}
+
+/* ---------- baseline ---------- */
+async function captureBaseline() {
+  try {
+    const r = await authedFetch(API.baselineCapture, { method: "POST" });
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.error || ("HTTP " + r.status));
+
+    setClientBaselineFromServer(d.baseline);
+    $("baseInfo").textContent =
+      "Backend baseline: " + (d.baseline?.total_devices || 0) +
+      " emitter(s) captured at " +
+      new Date(d.baseline?.captured_at || Date.now()).toLocaleTimeString() +
+      ". New emitters now flagged and included in generated products.";
+    refresh();
+  } catch (e) {
+    $("baseInfo").innerHTML = '<span class="err">Baseline failed: ' + esc(e.message) + '</span>';
+  }
+}
+async function clearBaseline() {
+  try {
+    const r = await authedFetch(API.baseline, { method: "DELETE" });
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.error || ("HTTP " + r.status));
+    baseline = null;
+    $("baseInfo").textContent = "No backend baseline captured. Capture during a known-quiet period to detect new emitters.";
+    refresh();
+  } catch (e) {
+    $("baseInfo").innerHTML = '<span class="err">Clear baseline failed: ' + esc(e.message) + '</span>';
+  }
+}
+
+/* ---------- generate product ---------- */
+async function generate() {
+  $("genBtn").disabled = true;
+  $("genInfo").textContent = "Generating locally… the model is thinking (this can take 10–30s).";
+  $("productBox").style.display = "block";
+  $("productBox").innerHTML = '<div class="muted">Contacting local model…</div>';
+  try {
+    // OPERATOR survives session resume; the login input does not.
+    const r = await authedFetch(API.process, { method: "POST", headers: { "x-actor": OPERATOR || $("u").value.trim() || "operator" } });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+    renderProduct(d);
+    openReportModal(d);
+    $("genInfo").textContent = "Product written and logged to the audit chain.";
+  } catch (e) {
+    $("productBox").innerHTML = '<div class="err">Generation failed: ' + esc(e.message) + '</div>';
+    $("genInfo").textContent = "";
+  } finally {
+    $("genBtn").disabled = false;
+  }
+}
+
+function renderProduct(d) {
+  const p = d.product || {};
+  const src = d.source || "unknown";
+
+  if (src === "data_sufficiency_gate") {
+    $("productBox").innerHTML =
+      '<div class="withheld">' +
+        '<div class="wt">ASSESSMENT WITHHELD</div>' +
+        '<p style="color:var(--dim);margin:8px 0 4px">The system declined to produce a confident product. This is by design — it does not guess from thin data.</p>' +
+        '<ul style="color:var(--text);font-family:var(--mono);font-size:12px">' +
+          (d.data_sufficiency?.reasons || []).map(x => '<li>' + esc(x) + '</li>').join("") +
+        '</ul>' +
+        '<div class="humanflag">Non-decision logged · audit ' + esc((d.audit_hash||"").slice(0,16)) + '…</div>' +
+      '</div>';
+    return;
+  }
+
+  const srcCls = src === "model" ? "src-model" : "src-fallback";
+  const srcTxt = src === "model" ? "LOCAL MODEL" : "DETERMINISTIC FALLBACK";
+  const risk = p.exposure_risk || {}, c2 = p.decision_support || {}, conf = p.confidence || {};
+
+  $("productBox").innerHTML =
+    '<div class="prod">' +
+      '<div class="row" style="justify-content:space-between">' +
+        '<span class="srcbadge ' + srcCls + '">' + srcTxt + ' · ' + esc(d.model || "—") + '</span>' +
+        '<span class="muted">raw identifiers to model: 0</span>' +
+      '</div>' +
+      '<h4>' + esc(p.title || "Emissions Awareness Report") + '</h4>' +
+      optionalField("Bottom line", esc(p.bottom_line)) +
+      optionalField("Operator decision",
+        '<span class="risk risk-' + decisionToRisk(p.operator_decision) + '">' + esc(p.operator_decision || "—") + '</span>') +
+      optionalListField("What changed", p.what_changed) +
+      optionalListField("Known emitters", p.known_emitters) +
+      optionalListField("Unknown emitters", p.unknown_emitters) +
+      optionalListField("Persistent emitters", p.persistent_emitters) +
+      optionalField("Baseline deviation", esc(p.baseline_deviation)) +
+      pirField(p.key_questions) +
+      optionalListField("Intelligence gaps", p.intelligence_gaps) +
+      optionalField("Recommended next action", esc(p.recommended_next_action)) +
+      field("Executive summary", esc(p.executive_summary)) +
+      field("RF terrain", esc(p.key_terrain_rf_terrain_assessment)) +
+      badgeField("Exposure risk", risk.level, risk.level, risk.rationale) +
+      listField("Operator takeaways", p.operator_takeaways) +
+      listField("Recommended defensive actions", p.recommended_defensive_actions) +
+      badgeField("Decision support", c2.alert_level, alertToRisk(c2.alert_level), c2.recommended_operator_focus) +
+      field("Confidence", conf.level ? ('<b>' + esc(conf.level) + '</b> — ' + esc(conf.rationale)) : (esc(conf.rationale) || "—")) +
+      listField("Limitations", p.limitations) +
+      '<div class="humanflag">⚑ HUMAN DECISION REQUIRED — advisory only · no autonomous effects · audit ' + esc((d.audit_hash||"").slice(0,16)) + '…</div>' +
+    '</div>';
+}
+
+function decisionToRisk(decision) {
+  const d = String(decision || "").toLowerCase();
+  if (d.includes("no-go")) return "High";
+  if (d.includes("verify")) return "Moderate";
+  return "Low";
+}
+
+function optionalField(label, html) {
+  const v = String(html ?? "").trim();
+  if (!v || v === "undefined" || v === "null") return "";
+  return field(label, html);
+}
+
+function optionalListField(label, arr) {
+  if (!Array.isArray(arr) || !arr.length) return "";
+  return listField(label, arr);
+}
+
+function pirField(arr) {
+  if (!Array.isArray(arr) || !arr.length) return "";
+  const items = arr.map(x => {
+    const pir = x?.question || x?.pir || "Question";
+    const assessment = x?.assessment || "—";
+    const conf = x?.confidence || "Low";
+    return '<li><b>' + esc(pir) + '</b> — ' + esc(assessment) +
+      ' <span class="risk risk-' + esc(conf === "High" ? "Low" : conf === "Medium" ? "Moderate" : "Low") + '">' +
+      esc(conf) + '</span></li>';
+  }).join("");
+  return '<div class="field"><div class="fl">Key questions</div><ul>' + items + '</ul></div>';
+}
+
+/* badge + text composite that degrades to "—" when the model omits the
+   block, instead of rendering an empty colored pill */
+function badgeField(label, level, cls, text) {
+  const pill = level ? '<span class="risk risk-' + esc(cls) + '">' + esc(level) + '</span>' : "";
+  const body = esc(text);
+  return field(label, [pill, body].filter(Boolean).join(" &nbsp;") || "—");
+}
+
+function field(label, html) { return '<div class="field"><div class="fl">' + esc(label) + '</div><div class="ft">' + (html||"—") + '</div></div>'; }
+function listField(label, arr) {
+  const items = (arr || []).map(x => '<li>' + esc(x) + '</li>').join("") || '<li class="muted">—</li>';
+  return '<div class="field"><div class="fl">' + esc(label) + '</div><ul>' + items + '</ul></div>';
+}
+function alertToRisk(a) { return a === "Red" ? "High" : a === "Yellow" ? "Moderate" : "Low"; }
+
+
+/* ---------- report popup modal ---------- */
+function openReportModal(d) {
+  const modal = $("reportModal");
+  const body = $("reportModalBody");
+  const meta = $("reportModalMeta");
+  const title = $("reportModalTitle");
+  const productBox = $("productBox");
+
+  if (!modal || !body || !productBox) return;
+
+  const p = d?.product || {};
+  const src = d?.source || "unknown";
+  const audit = (d?.audit_hash || "").slice(0, 16);
+
+  title.textContent = p.title || "Decision-Support Report";
+  meta.textContent =
+    "Generated " + (d?.generated_at || new Date().toISOString()) +
+    " · source " + src +
+    " · model " + (d?.model || "none") +
+    (audit ? " · audit " + audit + "…" : "");
+
+  body.innerHTML = productBox.innerHTML;
+  modal.classList.add("open");
+  modal.setAttribute("aria-hidden", "false");
+}
+
+function closeReportModal() {
+  const modal = $("reportModal");
+  if (!modal) return;
+  modal.classList.remove("open");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+async function copyReportModalText() {
+  const body = $("reportModalBody");
+  if (!body) return;
+
+  const text = body.innerText || body.textContent || "";
+  try {
+    await navigator.clipboard.writeText(text);
+    $("genInfo").innerHTML = '<span style="color:var(--green)">Report copied to clipboard.</span>';
+  } catch {
+    $("genInfo").innerHTML = '<span class="err">Copy failed.</span>';
+  }
+}
+
+/* ---------- audit verify ---------- */
+async function verifyChain() {
+  $("genInfo").textContent = "Verifying chain…";
+  try {
+    const r = await authedFetch(API.verify);
+    const d = await r.json();
+    $("genInfo").innerHTML = d.ok && d.broken_at === null
+      ? '<span style="color:var(--green)">Audit chain intact — ' + d.length + ' entries, no tampering.</span>'
+      : '<span class="err">Chain BROKEN at entry ' + d.broken_at + ' (' + esc(d.error || "") + ').</span>';
+  } catch (e) { $("genInfo").innerHTML = '<span class="err">Verify failed: ' + esc(e.message) + '</span>'; }
+}
+
+/* ---------- utils ---------- */
+function bluetoothId(d) {
+  return (
+    d?.bluetooth_id ||
+    d?.raw_mac ||
+    d?.mac ||
+    d?.address ||
+    d?.addr ||
+    d?.observed_address ||
+    d?.anonymized_id ||
+    "—"
+  );
+}
+function deviceName(d) {
+  return (
+    d?.device_name ||
+    d?.advertised_name ||
+    d?.name ||
+    d?.local_name ||
+    ""
+  );
+}
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function fmtHeartbeat(iso){
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  const sec = Math.round((Date.now()-t)/1000);
+  if (sec < 60) return sec + "s ago";
+  if (sec < 3600) return Math.round(sec/60) + "m ago";
+  return Math.round(sec/3600) + "h ago";
+}
+function nowClock() { return new Date().toLocaleTimeString(); }
+
+/* ---------- session resume / sign out ---------- */
+function enterApp() {
+  $("login").style.display = "none";
+  if ($("loginStage")) $("loginStage").style.display = "none";
+  $("app").style.display = "block";
+  OPERATOR = (() => { try { return sessionStorage.getItem("bs_user") || "operator"; } catch { return "operator"; } })();
+  renderDecisions();
+  initSiteUI();
+  loadStatus();
+  loadBaseline();
+  startPolling();
+}
+async function resumeSession() {
+  if (!AUTH) return;
+  try {
+    const r = await fetch(API.intel, { headers: { Authorization: AUTH } });
+    if (!r.ok) { try { sessionStorage.removeItem("bs_auth"); } catch {} AUTH = null; return; }
+    enterApp();
+  } catch { try { sessionStorage.removeItem("bs_auth"); } catch {} AUTH = null; }
+}
+function signOut() {
+  try { sessionStorage.removeItem("bs_auth"); } catch {}
+  AUTH = null;
+  if (pollTimer) clearInterval(pollTimer);
+  location.reload();
+}
+
+/* ============================================================
+   PRODUCTION STATUS CHROME — derived client-side, no backend change
+   ============================================================ */
+function pad2(n){ return String(n).padStart(2,"0"); }
+const _MON = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+function zuluClock(d){ d=d||new Date(); return pad2(d.getUTCHours())+pad2(d.getUTCMinutes())+pad2(d.getUTCSeconds())+"Z"; }
+function dtg(d){ d=d||new Date(); return pad2(d.getUTCDate())+pad2(d.getUTCHours())+pad2(d.getUTCMinutes())+"Z"+_MON[d.getUTCMonth()]+String(d.getUTCFullYear()).slice(2); }
+
+function applyClassification(){
+  ["classTop","classBottom"].forEach(id => {
+    const el=$(id);
+    if(el){ el.textContent=CLASSIFICATION.text; el.style.background=CLASSIFICATION.color; el.style.color=CLASSIFICATION.fg; }
+  });
+}
+
+function linkState(){
+  const age = net.lastOk ? Date.now()-net.lastOk : Infinity;
+  if (!net.lastOk && net.fails===0) return { s:"INIT", cls:"down" };
+  if (net.fails>=3 || age>45000)    return { s:"DOWN", cls:"down" };
+  if (net.fails>=1 || age>15000)    return { s:"DEGRADED", cls:"degraded" };
+  return { s:"UP", cls:"up" };
+}
+
+function renderOpsBar(){
+  const now=new Date();
+  if($("obDTG")) $("obDTG").textContent = dtg(now)+" · "+zuluClock(now);
+  const ls=linkState(), lb=$("linkBadge"), lt=$("linkText");
+  if(lb&&lt){ lb.className="link "+ls.cls; lt.textContent="LINK "+ls.s+(net.lastLatency!=null&&ls.cls!=="down"?" · "+net.lastLatency+"ms":""); }
+  const age=$("obAge");
+  if(age){
+    if(!net.lastOk){ age.textContent="no data"; age.className="obv age-stale"; }
+    else {
+      const sec=Math.round((Date.now()-net.lastOk)/1000);
+      age.textContent=sec+"s ago";
+      age.className="obv "+(sec<10?"age-ok":sec<30?"age-warn":"age-stale");
+    }
+  }
+}
+function startClock(){ if(clockTimer) return; clockTimer=setInterval(renderOpsBar,1000); renderOpsBar(); }
+
+function renderAboutBuild(){
+  const el=$("aboutBuild"); if(!el) return;
+  const rows=[
+    ["Product","BLE Tripwire · Passive BLE Presence Awareness"],
+    ["Version", BUILD.version+" ("+BUILD.channel+")"],
+    ["Mode", BUILD.mode],
+    ["Inference","Local · on-box GPU · zero cloud egress"],
+    ["Operator",(OPERATOR||"operator")+" · "+SITE.operatorRole],
+    ["Site / AO", SITE.name+" · "+SITE.ao],
+  ];
+  el.innerHTML=rows.map(r=>'<div class="k">'+esc(r[0])+'</div><div class="v">'+esc(r[1])+'</div>').join("");
+}
+
+function initSiteUI(){
+  applyClassification();
+  if($("obSite")) $("obSite").textContent=SITE.name;
+  if($("obAO")) $("obAO").textContent=SITE.ao;
+  if($("obMGRS")) $("obMGRS").textContent=SITE.mgrs||"—";
+  if($("obOp")) $("obOp").textContent=(OPERATOR||"operator")+" · "+SITE.operatorRole;
+  renderAboutBuild();
+  renderNodes();
+  startClock();
+}
+
+/* ---- activity trend (rolling 60-min, client-side) ---- */
+function pushHistory(a, level){
+  const count = (a && (a.total_devices ?? (a.devices ? a.devices.length : 0))) || 0;
+  history.push({ t: Date.now(), count, level });
+  const cutoff = Date.now()-60*60*1000;
+  while(history.length && history[0].t < cutoff) history.shift();
+}
+function renderTrend(){
+  const cv=$("trendCanvas"); if(!cv) return;
+  const wrap=cv.parentElement;
+  const W=cv.width=Math.max(240, Math.round((wrap.clientWidth||760)-92));
+  const H=cv.height=64;
+  const ctx=cv.getContext("2d"); ctx.clearRect(0,0,W,H);
+  if($("trendNow")) $("trendNow").textContent = history.length ? history[history.length-1].count : 0;
+  if(history.length<2){ ctx.fillStyle="rgba(138,149,178,.55)"; ctx.font="10px ui-monospace,monospace"; ctx.fillText("collecting trend…",6,H/2); return; }
+  const t0=history[0].t, t1=Math.max(history[history.length-1].t,t0+1);
+  const maxC=Math.max(3,...history.map(h=>h.count));
+  const X=t=>((t-t0)/(t1-t0))*(W-2)+1, Y=c=>H-3-(c/maxC)*(H-9);
+  ctx.strokeStyle="rgba(78,162,255,.10)"; ctx.lineWidth=1;
+  for(let i=0;i<=2;i++){ const yy=3+i*((H-6)/2); ctx.beginPath(); ctx.moveTo(0,yy); ctx.lineTo(W,yy); ctx.stroke(); }
+  const fill={GREEN:"rgba(31,203,150,.16)",YELLOW:"rgba(255,181,71,.20)",RED:"rgba(255,77,94,.22)"};
+  for(let i=1;i<history.length;i++){
+    const a=history[i-1], b=history[i];
+    ctx.fillStyle=fill[b.level]||fill.GREEN;
+    ctx.beginPath(); ctx.moveTo(X(a.t),H); ctx.lineTo(X(a.t),Y(a.count)); ctx.lineTo(X(b.t),Y(b.count)); ctx.lineTo(X(b.t),H); ctx.closePath(); ctx.fill();
+  }
+  ctx.strokeStyle="#4ea2ff"; ctx.lineWidth=1.6; ctx.beginPath();
+  history.forEach((h,i)=>{ const px=X(h.t),py=Y(h.count); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }); ctx.stroke();
+  const last=history[history.length-1];
+  ctx.fillStyle={GREEN:"#1fcb96",YELLOW:"#ffb547",RED:"#ff4d5e"}[last.level]||"#4ea2ff";
+  ctx.beginPath(); ctx.arc(X(last.t),Y(last.count),3,0,Math.PI*2); ctx.fill();
+}
+
+/* ---- sensor network nodes (heartbeat = honest hook, not faked) ---- */
+function renderNodes(){
+  const el=$("nodegrid"); if(!el) return;
+  const ls=linkState();
+  el.innerHTML=HEAT.nodes.map(n=>{
+    const sn=(STATUS&&Array.isArray(STATUS.nodes))?STATUS.nodes.find(x=>(x.id||x.name)===n.id):null;
+    const live = sn ? !!sn.live : n.live;
+    n.live = live;
+    const hb=sn&&(sn.last_seen||sn.heartbeat)?fmtHeartbeat(sn.last_seen||sn.heartbeat):null;
+    return '<div class="node'+(live?'':' pending')+'">'+
+      '<div class="nh"><div><div class="nid">'+esc(n.id)+'</div>'+
+      '<div class="nrole">'+(live?'BLE · passive scan':'install pending · enables triangulation')+'</div></div>'+
+      '<span class="nstat '+(live?'live':'pend')+'">'+(live?'ONLINE':'PENDING')+'</span></div>'+
+      '<div class="nrow"><span class="k">Backhaul</span><span class="v">'+(live?('gateway · '+ls.s):'—')+'</span></div>'+
+      '<div class="nrow"><span class="k">Heartbeat</span><span class="v'+(hb?'':' pendv')+'">'+(hb?esc(hb):(live?'pending /status':'—'))+'</span></div>'+
+      '</div>';
+  }).join("");
+}
+
+/* ---- RF tripwire (deterministic unknown-emitter watch) ---- */
+let TW_AUDIO = false;
+const _twPrev = new Map();   // id -> last state, client-side escalation detection
+let _twAudioCtx = null;
+
+function twBeep(kind){
+  if(!TW_AUDIO) return;
+  try{
+    _twAudioCtx = _twAudioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    const ctx=_twAudioCtx, o=ctx.createOscillator(), g=ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type="sine";
+    o.frequency.value = kind==="CLOSING" ? 880 : 620;
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.32);
+    o.start(); o.stop(ctx.currentTime+0.34);
+  }catch(e){}
+}
+
+async function loadThreats(){
+  try{
+    const r=await authedFetch(API.threats);
+    if(!r.ok) return;
+    renderThreats(await r.json());
+  }catch{ /* keep last picture */ }
+}
+
+function renderThreats(d){
+  const list=$("twList"), meta=$("twMeta"), counts=$("twCounts");
+  if(!list) return;
+  const threats=(d&&d.threats)||[];
+  const unknowns=threats.filter(t=>!t.known);
+  const c=(d&&d.counts)||{closing:0,alert:0,watch:0,known:0};
+
+  if(meta) meta.textContent="· unknown-emitter watch"+(d.zone_dbm!=null?(" · zone "+d.zone_dbm+" dBm"):"")+" · "+(d.window_sec||120)+"s"+(d.baseline_active?"":" · NO BASELINE");
+
+  if(counts) counts.innerHTML=
+    '<span class="twcount tw-CLOSING">CLOSING '+c.closing+'</span>'+
+    '<span class="twcount tw-ALERT">ALERT '+c.alert+'</span>'+
+    '<span class="twcount tw-WATCH">WATCH '+c.watch+'</span>'+
+    '<span class="twcount">KNOWN '+c.known+'</span>';
+
+  for(const t of unknowns){
+    const prev=_twPrev.get(t.id)||"NONE";
+    if((t.state==="ALERT"||t.state==="CLOSING") && prev!==t.state) twBeep(t.state);
+    _twPrev.set(t.id, t.state);
+  }
+  for(const id of Array.from(_twPrev.keys())) if(!unknowns.find(t=>t.id===id)) _twPrev.delete(id);
+
+  if(!unknowns.length){
+    list.innerHTML='<div class="muted">'+(d.baseline_active
+      ?"No unknown emitters in zone. Tripwire armed."
+      :"Capture a baseline to arm the tripwire — every non-baseline emitter will then be flagged.")+'</div>';
+    return;
+  }
+  list.innerHTML=unknowns.map(t=>{
+    const age=fmtHeartbeat(t.last_seen)||"now";
+    const arrow=t.rising?" ↑":"";
+    const nodes=(t.sensors||[]).length;
+    return '<div class="twrow row-'+t.state+'">'+
+      '<span class="tws tw-'+t.state+'">'+t.state+'</span>'+
+      '<span class="twid">'+esc(t.id)+'</span>'+
+      '<span class="twmeta">'+t.rssi_max_dbm+' dBm'+arrow+' · '+esc(t.proximity_band||"")+'<br>'+
+      t.sweeps+' sweeps · '+nodes+' node'+(nodes===1?"":"s")+' · '+age+'</span>'+
+      '</div>';
+  }).join("");
+}
+
+/* ---- alert + operator acknowledgment (RED escalations, session-local) ---- */
+function evaluateAlerts(s){
+  if(s.level==="RED" && lastLevel!=="RED"){
+    alerts.unshift({ id:"AL-"+Date.now().toString(36).toUpperCase().slice(-6), ts:new Date(), rationale:s.rationale, ackBy:null, ackTs:null });
+    // cap history at 50; shed oldest ACKNOWLEDGED entries first so an
+    // unacknowledged alert is never silently dropped
+    if(alerts.length>50){
+      for(let i=alerts.length-1; i>=0 && alerts.length>50; i--){
+        if(alerts[i].ackBy) alerts.splice(i,1);
+      }
+      if(alerts.length>50) alerts.length=50;
+    }
+  }
+  lastLevel=s.level;
+  renderAlerts();
+}
+function ackAlert(id){ const al=alerts.find(x=>x.id===id); if(!al) return; al.ackBy=OPERATOR||"operator"; al.ackTs=new Date(); renderAlerts(); }
+function renderAlerts(){
+  const el=$("alertbar"); if(!el) return;
+  // render ALL alerts (bar scrolls) — previously slice(0,4) made a 5th RED
+  // escalation push an un-acked alert permanently out of reach
+  el.innerHTML=alerts.map(al=>{
+    const ackd=!!al.ackBy;
+    return '<div class="alertcard'+(ackd?' ackd':'')+'">'+
+      '<div class="ai"><div class="at">'+(ackd?'ACKNOWLEDGED':'\u2691 RED · ELEVATED EMISSIONS')+' · '+esc(al.id)+'</div>'+
+      '<div class="ad">'+esc(al.rationale)+'</div>'+
+      '<div class="am">raised '+dtg(al.ts)+(ackd?(' · ack by '+esc(al.ackBy)+' '+dtg(al.ackTs)):'')+'</div></div>'+
+      (ackd?'':'<button class="ackbtn" data-ack="'+esc(al.id)+'">Acknowledge</button>')+'</div>';
+  }).join("");
+  el.querySelectorAll("[data-ack]").forEach(b=>b.addEventListener("click",()=>ackAlert(b.getAttribute("data-ack"))));
+}
+
+/* ---- about / system info drawer ---- */
+function openAbout(){ const m=$("aboutModal"); if(!m) return; renderAboutBuild(); renderDecisions(); m.classList.add("open"); m.setAttribute("aria-hidden","false"); }
+function closeAbout(){ const m=$("aboutModal"); if(!m) return; m.classList.remove("open"); m.setAttribute("aria-hidden","true"); }
+
+/* ---------- wire ---------- */
+$("loginBtn").addEventListener("click", doLogin);
+$("signoutBtn").addEventListener("click", signOut);
+$("p").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
+$("u").addEventListener("keydown", e => { if (e.key === "Enter") { if ($("p").value) doLogin(); else $("p").focus(); } });
+$("baseBtn").addEventListener("click", captureBaseline);
+$("baseClear").addEventListener("click", clearBaseline);
+$("genBtn").addEventListener("click", generate);
+$("verifyBtn").addEventListener("click", verifyChain);
+$("reportModalClose")?.addEventListener("click", closeReportModal);
+$("reportModalBackdrop")?.addEventListener("click", closeReportModal);
+$("reportModalCopy")?.addEventListener("click", copyReportModalText);
+$("reportModalPrint")?.addEventListener("click", () => window.print());
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeReportModal(); });
+
+/* heat map controls */
+$("heatSim")?.addEventListener("click", () => {
+  HEAT.simField = !HEAT.simField;
+  $("heatSim").textContent = "Synthetic overlay: " + (HEAT.simField ? "on" : "off");
+  renderHeatmap(lastAnalysis);
+});
+let _heatResize;
+window.addEventListener("resize", () => {
+  clearTimeout(_heatResize);
+  _heatResize = setTimeout(() => { renderHeatmap(lastAnalysis); renderTrend(); }, 150);
+});
+
+$("twAudio")?.addEventListener("click", () => { TW_AUDIO=!TW_AUDIO; $("twAudio").textContent="Audible: "+(TW_AUDIO?"on":"off"); if(TW_AUDIO) twBeep("ALERT"); });
+$("aboutBtn")?.addEventListener("click", openAbout);
+$("aboutClose")?.addEventListener("click", closeAbout);
+$("aboutBackdrop")?.addEventListener("click", closeAbout);
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeAbout(); });
+
+$("footer").textContent = "BLE Tripwire " + BUILD.version + " · fully local · deterministic pipeline · operator UI shows observed identifiers · times in UTC.";
+// ON-DEVICE: no server-side auth (loopback + operator's own hotspot only), so
+// skip the sign-in gate entirely and enter the app directly.
+enterApp();
+</script>
+</body>
+</html>
+

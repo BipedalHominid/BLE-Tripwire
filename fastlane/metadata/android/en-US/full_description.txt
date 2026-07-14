@@ -1,0 +1,32 @@
+BLE Tripwire turns your phone into the hub of a passive, camera-free perimeter
+alert system.
+
+Inexpensive ESP32-S3 sensor nodes passively listen for Bluetooth Low Energy
+advertisements (phones, wearables, trackers) and report sightings to your phone
+over its Wi-Fi hotspot. Everything runs on the phone itself — no cloud, no
+account, no external server, no camera.
+
+Features:
+
+• Passive only — the sensors never transmit scan requests or connect to
+  anything; they just listen.
+• Privacy by design — device addresses are anonymized on ingest with a
+  per-install random HMAC key. Raw identifiers are never needed for alerts.
+• Zone-breach state machine — deterministic WATCH / ALERT / CLOSING states,
+  including detection of emitters that are approaching (rising signal
+  strength across sweeps).
+• Baseline capture — teach it your own devices once; after that only
+  unexpected emitters raise alerts.
+• Tamper-evident audit chain — every alert and state change is written to an
+  HMAC-chained log you can verify for integrity, useful as an incident record.
+• Data-sufficiency gate — the app refuses to produce a confident assessment
+  from thin or stale data instead of guessing.
+• Fully deterministic — no AI/ML layer, no network calls, all logic is
+  readable in the source.
+
+Honest limitations: RSSI is not distance, a single sensor cannot triangulate,
+and modern phones randomize their Bluetooth addresses — this is a presence and
+approach tripwire, not a tracker or a positioning system.
+
+Requires: one or more ESP32-S3 boards flashed with the included open-source
+firmware (Arduino sketches in the repository), joined to your phone's hotspot.

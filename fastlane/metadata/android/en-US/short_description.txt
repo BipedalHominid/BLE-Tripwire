@@ -1,0 +1,1 @@
+Passive BLE perimeter tripwire — camera-free presence alerts, fully on-device.

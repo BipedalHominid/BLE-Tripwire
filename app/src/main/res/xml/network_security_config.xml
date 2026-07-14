@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The on-device dashboard is served over plain HTTP on loopback, and Android 9+
+  blocks cleartext by default. Permit it for loopback (and localhost) so the
+  WebView can load http://127.0.0.1:<port>/. We keep the base config's default
+  (cleartext still allowed app-wide via usesCleartextTraffic=true in the manifest
+  for the hotspot LAN case), but this explicitly whitelists loopback so it works
+  even under stricter policies.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">localhost</domain>
+    </domain-config>
+</network-security-config>

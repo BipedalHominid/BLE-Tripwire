@@ -1,0 +1,13 @@
+# Android / Gradle
+.gradle/
+build/
+/local.properties
+*.iml
+.idea/
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Large prebuilt native lib — fetched by scripts/fetch-libnode.sh, not committed
+app/src/main/jniLibs/*/libnode.so

@@ -1,0 +1,73 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.surfacevector.bletripwire'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.surfacevector.bletripwire"
+        minSdk 26          // Android 8.0 — adaptive icons, notification channels
+        targetSdk 34       // Android 14 — special-use foreground service
+        versionCode 1
+        versionName "1.0.0"
+
+        ndk {
+            // Real phones are arm64. Add "x86_64" here if you want to run in the
+            // Android emulator (fetch-libnode.sh already downloads that .so too).
+            abiFilters "arm64-v8a"
+            // abiFilters "arm64-v8a", "x86_64"
+        }
+
+        externalNativeBuild {
+            cmake {
+                // libnode + our JNI bridge use the shared C++ runtime.
+                arguments "-DANDROID_STL=c++_shared"
+            }
+        }
+    }
+
+    // If Gradle can't find your NDK, install one via SDK Manager and either let
+    // AGP pick the default, or pin it here, e.g.:
+    // ndkVersion "26.3.11579264"
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            // libnode.so is a large prebuilt; keep it uncompressed & page-aligned
+            // so the loader mmaps it directly.
+            useLegacyPackaging false
+        }
+    }
+
+    buildTypes {
+        debug {
+            // Easiest path to a runnable APK: `./gradlew assembleDebug` produces a
+            // debug-signed APK you can sideload. No keystore needed.
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
+            // For a signed release APK, add a signingConfig here (see README).
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core:1.13.1'
+}

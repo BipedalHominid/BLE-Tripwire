@@ -1,0 +1,14 @@
+{
+  "name": "ble-tripwire-ondevice",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BLE Tripwire — passive BLE presence-awareness pipeline running fully on-device under nodejs-mobile. Deterministic only: signal-posture scoring, zone-breach state machine, tamper-evident audit chain. No AI layer, no cloud.",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
