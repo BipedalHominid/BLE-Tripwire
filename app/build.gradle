@@ -47,6 +47,16 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            def ksFile = System.getenv("BLETRIPWIRE_KS") ?: "${System.properties['user.home']}/ble-tripwire-release.jks"
+            storeFile file(ksFile)
+            storePassword System.getenv("BLETRIPWIRE_KS_PASS")
+            keyAlias "bletripwire"
+            keyPassword System.getenv("BLETRIPWIRE_KS_PASS")
+        }
+    }
+
     buildTypes {
         debug {
             // Easiest path to a runnable APK: `./gradlew assembleDebug` produces a
@@ -55,6 +65,7 @@ android {
         }
         release {
             minifyEnabled false
+            signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
                     'proguard-rules.pro'
             // For a signed release APK, add a signingConfig here (see README).
