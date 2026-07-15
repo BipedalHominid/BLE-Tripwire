@@ -123,6 +123,7 @@
   .chip.KNOWN   { color: var(--dim);     background: rgba(255,255,255,.05); }
   .sig .sid   { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
   .sig .sdet  { color: var(--faint); font-size: 12px; font-family: var(--mono); margin-top:2px; }
+  .idsub { color: var(--faint); font-size: 11px; font-family: var(--mono); opacity:.7; }
   .sig .grow { flex:1; min-width:0; }
   .trend-up { color: var(--closing); }
 
@@ -228,9 +229,14 @@
 
 <header>
   <div class="wordmark"><span class="w1">BLE</span><span class="w2">Tripwire</span></div>
-  <button class="sense" id="senseBtn" onclick="toggleSensing()">
-    <span class="dot"></span><span id="senseLbl">Sensing</span>
-  </button>
+  <div style="display:flex;align-items:center;gap:14px">
+    <button class="sense" id="armBtn" onclick="toggleArm()">
+      <span class="dot"></span><span id="armLbl">Armed</span>
+    </button>
+    <button class="sense" id="senseBtn" onclick="toggleSensing()">
+      <span class="dot"></span><span id="senseLbl">Sensing</span>
+    </button>
+  </div>
 </header>
 
 <!-- the wire -->
@@ -311,10 +317,38 @@
   </div>
 </section>
 
+<!-- arm schedule -->
+<section id="schedule">
+  <h2>Alert schedule <span id="schSaved" style="opacity:0;font-family:var(--mono);font-size:12px;color:var(--wire)">saved</span></h2>
+  <div class="baserow">
+    <div class="basemeta">Only notify during a set window (e.g. overnight). Sensing and history always run — this just gates alerts.</div>
+  </div>
+  <label class="schrow" style="display:flex;align-items:center;gap:10px;margin:12px 0;cursor:pointer">
+    <input type="checkbox" id="schEnabled" onchange="schSave()" style="width:20px;height:20px">
+    <span style="font-size:13.5px;color:var(--dim)">Enable schedule</span>
+  </label>
+  <div id="schTimes" style="display:none;gap:14px">
+    <div class="knob" style="margin:8px 0">
+      <label>From <span class="val" id="schStartVal"></span></label>
+      <input type="time" id="schStart" onchange="schSave()"
+             style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-family:var(--mono)">
+    </div>
+    <div class="knob" style="margin:8px 0">
+      <label>Until <span class="val" id="schEndVal"></span></label>
+      <input type="time" id="schEnd" onchange="schSave()"
+             style="background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-family:var(--mono)">
+    </div>
+  </div>
+</section>
+
 <!-- history -->
 <section id="history">
   <h2>History <span class="chainchip" id="chainChip">…</span></h2>
   <div id="evList"><div class="empty">No events yet. Alerts, baseline changes, and setting changes appear here.</div></div>
+  <div class="btnrow">
+    <button class="btn" onclick="exportLog('txt')">Export log (text)</button>
+    <button class="btn" onclick="exportLog('csv')">Export CSV</button>
+  </div>
 </section>
 
 <div class="btnrow" style="margin: 4px 2px 0;">
@@ -410,6 +444,27 @@ function fmtAgo(iso) {
 }
 function shortId(id) { return String(id).replace(/^DEV-/, "").slice(0, 10); }
 
+function fmtDwell(sec) {
+  if (!sec || sec < 60) return (sec||0) + "s";
+  if (sec < 3600) return Math.round(sec/60) + "m";
+  return Math.round(sec/3600) + "h";
+}
+function sigLabel(t) {
+  // custom name if set, else short hex
+  return t.name ? esc(t.name) : esc(shortId(t.id));
+}
+function sigDetail(t) {
+  let s = t.rssi_last_dbm + ' dBm';
+  if (t.rising) s += ' · <span class="trend-up">▲ +' + t.trend_db + ' dB</span>';
+  else if (t.trend_db) s += ' · ' + (t.trend_db>0?'+':'') + t.trend_db + ' dB';
+  s += ' · ' + t.sweeps + ' sweep' + (t.sweeps===1?'':'s');
+  if (t.dwell_sec >= 60) s += ' · here ' + fmtDwell(t.dwell_sec);
+  if (t.return_count > 1) s += ' · <span class="trend-up">seen ' + t.return_count + '×</span>';
+  if ((t.sensors||[]).length) s += ' · ' + esc(t.sensors.join(", "));
+  s += ' · ' + fmtAgo(t.last_seen);
+  return s;
+}
+
 function renderSignals() {
   if (!THREATS) return;
   const unknowns = THREATS.threats.filter(t => !t.known);
@@ -419,15 +474,11 @@ function renderSignals() {
     : (knowns.length ? knowns.length + " trusted nearby" : "");
 
   $("sigList").innerHTML = unknowns.length ? unknowns.map(t =>
-    '<div class="sig">' +
+    '<div class="sig" onclick="nameDevice(\'' + esc(t.id) + '\')">' +
       '<span class="chip ' + t.state + '">' + t.state + '</span>' +
       '<div class="grow">' +
-        '<div class="sid">' + esc(shortId(t.id)) + '</div>' +
-        '<div class="sdet">' + t.rssi_last_dbm + ' dBm' +
-          (t.rising ? ' · <span class="trend-up">▲ +' + t.trend_db + ' dB</span>' : (t.trend_db ? ' · ' + (t.trend_db>0?'+':'') + t.trend_db + ' dB' : '')) +
-          ' · ' + t.sweeps + ' sweep' + (t.sweeps===1?'':'s') +
-          ' · ' + esc((t.sensors||[]).join(", ")) +
-          ' · ' + fmtAgo(t.last_seen) + '</div>' +
+        '<div class="sid">' + sigLabel(t) + (t.name ? ' <span class="idsub">' + esc(shortId(t.id)) + '</span>' : '') + '</div>' +
+        '<div class="sdet">' + sigDetail(t) + '</div>' +
       '</div>' +
     '</div>').join("")
     : '<div class="empty">No unknown signals in the current window.</div>';
@@ -438,9 +489,9 @@ function renderSignals() {
       " trusted device" + (knowns.length===1?"":"s") + " nearby";
     $("knownList").style.display = KNOWN_OPEN ? "" : "none";
     $("knownList").innerHTML = knowns.map(t =>
-      '<div class="sig">' +
+      '<div class="sig" onclick="nameDevice(\'' + esc(t.id) + '\')">' +
         '<span class="chip KNOWN">TRUSTED</span>' +
-        '<div class="grow"><div class="sid">' + esc(shortId(t.id)) + '</div>' +
+        '<div class="grow"><div class="sid">' + sigLabel(t) + (t.name ? ' <span class="idsub">' + esc(shortId(t.id)) + '</span>' : '') + '</div>' +
         '<div class="sdet">' + t.rssi_last_dbm + ' dBm · ' + fmtAgo(t.last_seen) + '</div></div>' +
       '</div>').join("");
   } else {
@@ -449,6 +500,18 @@ function renderSignals() {
   }
 }
 function toggleKnown(){ KNOWN_OPEN = !KNOWN_OPEN; renderSignals(); }
+
+async function nameDevice(id) {
+  const cur = (THREATS && THREATS.threats.find(t => t.id === id)) || {};
+  const name = prompt("Name this device (blank to clear):", cur.name || "");
+  if (name === null) return; // cancelled
+  try {
+    await fetch(API + "/names", { method: "POST",
+      headers: { "Content-Type": "application/json", "X-Actor": "owner" },
+      body: JSON.stringify({ id, name }) });
+    await loadThreats();
+  } catch (e) {}
+}
 
 /* ---------------- nodes + setup ---------------- */
 function renderNodes() {
@@ -581,6 +644,8 @@ function evText(e) {
     case "baseline_clear":     return { cls:"",        t: "Baseline cleared" };
     case "baseline_device_removed": return { cls:"",     t: "Removed " + id + " from trusted devices" };
     case "config_change":        return { cls:"",        t: "Sensitivity changed" };
+    case "armed":                return { cls:"clear",   t: "Armed — notifications on" };
+    case "disarmed":             return { cls:"",        t: "Disarmed — notifications off" };
     default:
       if (/^tripwire_/.test(e.event || "")) {
         const st = (e.event || "").replace("tripwire_", "");
@@ -643,6 +708,60 @@ async function openReport() {
 }
 function closeReport(){ $("modalWrap").style.display = "none"; }
 
+function exportLog(fmt) {
+  // Open the export endpoint; the Content-Disposition header makes the WebView
+  // hand it to the system downloader.
+  window.location.href = API + "/audit/export?format=" + (fmt === "csv" ? "csv" : "txt");
+}
+
+/* ---------------- arm / disarm ---------------- */
+let ARMED = true, SCHEDULE = { enabled:false, start:"23:00", end:"06:00" };
+async function toggleArm() {
+  try {
+    const r = await fetch(API + "/arm", { method: "POST",
+      headers: { "Content-Type": "application/json", "X-Actor": "owner" },
+      body: JSON.stringify({ armed: !ARMED }) });
+    const d = await r.json();
+    if (d.ok) { ARMED = d.armed; SCHEDULE = d.schedule; }
+  } catch (e) {}
+  renderArm();
+}
+function renderArm() {
+  $("armBtn").classList.toggle("off", !ARMED);
+  $("armLbl").textContent = ARMED
+    ? (SCHEDULE && SCHEDULE.enabled ? "Armed · sched" : "Armed")
+    : "Disarmed";
+  // reflect schedule into its controls if present
+  const en = $("schEnabled");
+  if (en) {
+    en.checked = !!(SCHEDULE && SCHEDULE.enabled);
+    $("schTimes").style.display = en.checked ? "flex" : "none";
+    if (SCHEDULE) {
+      if ($("schStart")) $("schStart").value = SCHEDULE.start || "23:00";
+      if ($("schEnd")) $("schEnd").value = SCHEDULE.end || "06:00";
+    }
+  }
+}
+async function schSave() {
+  const enabled = $("schEnabled").checked;
+  $("schTimes").style.display = enabled ? "flex" : "none";
+  const body = { schedule: {
+    enabled,
+    start: $("schStart").value || "23:00",
+    end: $("schEnd").value || "06:00",
+  }};
+  try {
+    const r = await fetch(API + "/arm", { method: "POST",
+      headers: { "Content-Type": "application/json", "X-Actor": "owner" },
+      body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.ok) { SCHEDULE = d.schedule; ARMED = d.armed;
+      $("schSaved").style.opacity = 1; setTimeout(()=>$("schSaved").style.opacity=0, 1400);
+      renderArm();
+    }
+  } catch (e) {}
+}
+
 /* ---------------- sensing toggle ---------------- */
 async function toggleSensing() {
   try {
@@ -671,6 +790,7 @@ async function loadStatus() {
     const r = await fetch(API + "/status"); const d = await r.json();
     STATUS = d;
     if (d.enabled !== undefined) { ENABLED = !!d.enabled; renderSense(); }
+    if (d.armed !== undefined) { ARMED = !!d.armed; SCHEDULE = d.schedule || SCHEDULE; renderArm(); }
     renderNodes(); applyState();
   } catch (e) {}
 }

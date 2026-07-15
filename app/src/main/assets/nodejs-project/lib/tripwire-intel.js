@@ -57,6 +57,19 @@ const TRIPWIRE_BASELINE_FILE = path.join(
   "baseline.json"
 );
 
+// Custom device names (anonymized_id -> label), persisted across restarts.
+const TRIPWIRE_NAMES_FILE = path.join(
+  TRIPWIRE_DATA_DIR,
+  "names.json"
+);
+
+// Arm state: when disarmed, sensing/history keep running but the notification
+// poller is told to stay quiet. Also holds an optional daily schedule window.
+const TRIPWIRE_ARM_FILE = path.join(
+  TRIPWIRE_DATA_DIR,
+  "arm.json"
+);
+
 // Anonymization salt (NOT request auth). Keep identical to existing installs
 // so historical DEV- ids stay stable.
 const TRIPWIRE_HMAC_SECRET =
@@ -266,6 +279,70 @@ function deleteTripwireBaseline() {
   if (fs.existsSync(TRIPWIRE_BASELINE_FILE)) {
     fs.unlinkSync(TRIPWIRE_BASELINE_FILE);
   }
+}
+
+// ---- custom device names -------------------------------------------------
+
+function readTripwireNames() {
+  try {
+    if (!fs.existsSync(TRIPWIRE_NAMES_FILE)) return {};
+    const obj = JSON.parse(fs.readFileSync(TRIPWIRE_NAMES_FILE, "utf8"));
+    return obj && typeof obj === "object" ? obj : {};
+  } catch {
+    return {};
+  }
+}
+function writeTripwireNames(map) {
+  ensureTripwireDataDir();
+  fs.writeFileSync(TRIPWIRE_NAMES_FILE, JSON.stringify(map, null, 2));
+}
+function setTripwireName(id, label) {
+  const map = readTripwireNames();
+  const clean = String(label || "").trim().slice(0, 40);
+  if (clean) map[id] = clean;
+  else delete map[id];
+  writeTripwireNames(map);
+  return map;
+}
+
+// ---- arm state + optional schedule --------------------------------------
+// Shape: { armed: bool, schedule: { enabled: bool, start: "HH:MM", end: "HH:MM" } }
+// Default is ARMED so a fresh install notifies out of the box.
+
+function readTripwireArm() {
+  try {
+    if (!fs.existsSync(TRIPWIRE_ARM_FILE))
+      return { armed: true, schedule: { enabled: false, start: "23:00", end: "06:00" } };
+    const obj = JSON.parse(fs.readFileSync(TRIPWIRE_ARM_FILE, "utf8"));
+    return {
+      armed: obj.armed !== false,
+      schedule: {
+        enabled: !!(obj.schedule && obj.schedule.enabled),
+        start: (obj.schedule && obj.schedule.start) || "23:00",
+        end: (obj.schedule && obj.schedule.end) || "06:00",
+      },
+    };
+  } catch {
+    return { armed: true, schedule: { enabled: false, start: "23:00", end: "06:00" } };
+  }
+}
+function writeTripwireArm(state) {
+  ensureTripwireDataDir();
+  fs.writeFileSync(TRIPWIRE_ARM_FILE, JSON.stringify(state, null, 2));
+}
+// Effective "should notifications fire right now": armed AND (no schedule, or
+// current local time falls inside the schedule window). Handles windows that
+// cross midnight (e.g. 23:00 -> 06:00).
+function tripwireNotifyActive(state = readTripwireArm(), now = new Date()) {
+  if (!state.armed) return false;
+  const sch = state.schedule;
+  if (!sch || !sch.enabled) return true;
+  const [sh, sm] = String(sch.start).split(":").map(Number);
+  const [eh, em] = String(sch.end).split(":").map(Number);
+  if (![sh, sm, eh, em].every(Number.isFinite)) return true;
+  const cur = now.getHours() * 60 + now.getMinutes();
+  const s = sh * 60 + sm, e = eh * 60 + em;
+  return s <= e ? (cur >= s && cur < e) : (cur >= s || cur < e);
 }
 
 function buildTripwireBaseline(analysis, actor = "unknown") {
@@ -1044,6 +1121,27 @@ loadTripwireConfig();
 
 function _twMean(a) { return a.length ? a.reduce((x, y) => x + y, 0) / a.length : null; }
 
+// Persistent return/visit tracking. A "visit" ends when an id is unseen for
+// more than RETURN_GAP_MS; the next sighting starts a new visit and bumps the
+// count. Kept in memory (resets on process restart, which is fine — it's a
+// session-scoped "how many times has this shown up" hint, not an audit record).
+const _tripwireReturns = new Map(); // id -> { count, lastSeenMs }
+const RETURN_GAP_MS = 90 * 1000;
+function _tripwireTrackReturns(id, obs) {
+  const lastMs = obs[obs.length - 1].t;
+  const firstMs = obs[0].t;
+  const rec = _tripwireReturns.get(id);
+  if (!rec) {
+    _tripwireReturns.set(id, { count: 1, lastSeenMs: lastMs });
+    return 1;
+  }
+  // If there was a long gap between the last time we saw it and this window's
+  // first observation, count it as a new visit.
+  if (firstMs - rec.lastSeenMs > RETURN_GAP_MS) rec.count += 1;
+  rec.lastSeenMs = lastMs;
+  return rec.count;
+}
+
 function computeThreats(now = Date.now()) {
   const baseline = readTripwireBaseline();
   const baselineIds = new Set(
@@ -1064,6 +1162,7 @@ function computeThreats(now = Date.now()) {
   }
 
   const threats = [];
+  const names = readTripwireNames();
   for (const [id, obs] of grouped.entries()) {
     obs.sort((a, b) => a.t - b.t);
     const rssis = obs.map((o) => o.rssi).filter(Number.isFinite);
@@ -1092,12 +1191,22 @@ function computeThreats(now = Date.now()) {
     else if (inZone && confirmed) state = "ALERT";
     else state = "WATCH";
 
+    // Dwell = how long this id has been present in the current window.
+    const dwellSec = Math.round((obs[obs.length - 1].t - obs[0].t) / 1000);
+    // Return count = number of distinct visits (gaps > 90s split a visit),
+    // tracked persistently so it survives beyond the sliding window.
+    const returnCount = _tripwireTrackReturns(id, obs);
+
     threats.push({
-      id, state, known, sweeps,
+      id,
+      name: names[id] || "",
+      state, known, sweeps,
       rssi_max_dbm: rssiMax, rssi_last_dbm: rssiLast,
       trend_db: trendDb, rising, in_zone: inZone,
       proximity_band: rssiProximityBand(rssiMax),
       sensors,
+      dwell_sec: dwellSec,
+      return_count: returnCount,
       first_seen: new Date(obs[0].t).toISOString(),
       last_seen: new Date(obs[obs.length - 1].t).toISOString(),
     });
@@ -1225,6 +1334,7 @@ export function installTripwire(app) {
 
   // STATUS (preserved shape; frontend reads .enabled)
   app.get("/api/sensors/ble-tripwire/status", (_req, res) => {
+    const arm = readTripwireArm();
     res.json({
       enabled: tripwireEnabled,
       knownDevices: tripwireKnownDevices.size,
@@ -1232,6 +1342,9 @@ export function installTripwire(app) {
       latestIntelFile: TRIPWIRE_INTEL_FILE,
       windowMinutes: Math.round(TRIPWIRE_WINDOW_MS / 60000),
       model: "deterministic (no model — on-device)",
+      armed: arm.armed,
+      schedule: arm.schedule,
+      notify_active: tripwireNotifyActive(arm),
       nodes: nodesFromObservations(),
     });
   });
@@ -1486,7 +1599,10 @@ export function installTripwire(app) {
       }
       if (Object.keys(applied).length) {
         saveTripwireConfig();
-        appendAudit({ event: "config_change", actor: actorOf(req), applied });
+        // NOTE: sensitivity tweaks are deliberately NOT written to the audit
+        // chain. The chain is for security events (alerts, baseline changes,
+        // arm/disarm) — logging every slider adjustment buried those under
+        // noise. Config is still persisted to config.json above.
       }
       res.json({
         ok: true,
@@ -1527,6 +1643,87 @@ export function installTripwire(app) {
       writeTripwireBaseline(baseline);
       appendAudit({ event: "baseline_device_removed", actor: actorOf(req), anonymized_id: id });
       res.json({ ok: true, removed: id, remaining: after });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: String(err.message || err) });
+    }
+  });
+
+  // NAMES: custom labels for anonymized ids (readable UI). Naming is just a
+  // label — it does NOT trust/baseline the device (separate deliberate action).
+  app.get("/api/sensors/ble-tripwire/names", (_req, res) => {
+    res.json({ ok: true, names: readTripwireNames() });
+  });
+  app.post("/api/sensors/ble-tripwire/names", (req, res) => {
+    try {
+      const { id, name } = req.body || {};
+      if (!id) return res.status(400).json({ ok: false, error: "missing id" });
+      const map = setTripwireName(String(id), name);
+      res.json({ ok: true, names: map });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: String(err.message || err) });
+    }
+  });
+
+  // ARM: arm/disarm gates NOTIFICATIONS only — sensing + history keep running.
+  // Optional daily schedule window. Both transitions are audit-logged (they're
+  // real security events, unlike sensitivity tweaks).
+  app.get("/api/sensors/ble-tripwire/arm", (_req, res) => {
+    const state = readTripwireArm();
+    res.json({ ok: true, ...state, notify_active: tripwireNotifyActive(state) });
+  });
+  app.post("/api/sensors/ble-tripwire/arm", (req, res) => {
+    try {
+      const cur = readTripwireArm();
+      const b = req.body || {};
+      const next = {
+        armed: typeof b.armed === "boolean" ? b.armed : cur.armed,
+        schedule: {
+          enabled: typeof b.schedule?.enabled === "boolean" ? b.schedule.enabled : cur.schedule.enabled,
+          start: b.schedule?.start || cur.schedule.start,
+          end: b.schedule?.end || cur.schedule.end,
+        },
+      };
+      writeTripwireArm(next);
+      if (next.armed !== cur.armed) {
+        appendAudit({ event: next.armed ? "armed" : "disarmed", actor: actorOf(req) });
+      }
+      res.json({ ok: true, ...next, notify_active: tripwireNotifyActive(next) });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: String(err.message || err) });
+    }
+  });
+
+  // EXPORT: dump the audit chain as a downloadable file (text or CSV) so an
+  // incident record can leave the phone. Read-only; the on-disk chain is
+  // untouched.
+  app.get("/api/sensors/ble-tripwire/audit/export", (req, res) => {
+    try {
+      const fmt = (req.query.format === "csv") ? "csv" : "txt";
+      let entries = [];
+      if (fs.existsSync(TRIPWIRE_AUDIT_FILE)) {
+        entries = fs.readFileSync(TRIPWIRE_AUDIT_FILE, "utf8")
+          .split("\n").filter(Boolean)
+          .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+          .filter(Boolean);
+      }
+      if (fmt === "csv") {
+        const rows = ["timestamp,event,anonymized_id,state,detail"];
+        for (const e of entries) {
+          const detail = JSON.stringify(e.applied || e.sensors || "").replace(/"/g, "'");
+          rows.push([e.ts, e.event, e.anonymized_id || "", e.state || "", `"${detail}"`].join(","));
+        }
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", 'attachment; filename="ble-tripwire-log.csv"');
+        return res.send(rows.join("\n"));
+      }
+      const lines = entries.map((e) =>
+        `${e.ts}  ${String(e.event).toUpperCase().padEnd(22)}` +
+        `${e.anonymized_id ? " id=" + e.anonymized_id : ""}` +
+        `${e.state ? " state=" + e.state : ""}`
+      );
+      res.setHeader("Content-Type", "text/plain");
+      res.setHeader("Content-Disposition", 'attachment; filename="ble-tripwire-log.txt"');
+      res.send("BLE Tripwire — audit log export\n" + new Date().toISOString() + "\n\n" + lines.join("\n") + "\n");
     } catch (err) {
       res.status(500).json({ ok: false, error: String(err.message || err) });
     }

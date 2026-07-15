@@ -21,9 +21,16 @@ ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 JNILIBS="${ROOT}/app/src/main/jniLibs"
 HEADERS_DST="${ROOT}/app/src/main/cpp/libnode/include/node"
 
-# Which ABIs to install. arm64-v8a is real phones; x86_64 is the emulator.
+# Which ABIs to install. arm64-v8a covers essentially every phone made in the
+# last several years. x86_64 is only for the Android emulator and roughly
+# doubles the APK size, so it is OFF by default. Set WANT_X86_64=1 to include it
+# (e.g. if you develop against an emulator):
+#   WANT_X86_64=1 scripts/fetch-libnode.sh
 # (armeabi-v7a also exists in the release if you need very old 32-bit devices.)
-ABIS=("arm64-v8a" "x86_64")
+ABIS=("arm64-v8a")
+if [[ "${WANT_X86_64:-0}" == "1" ]]; then
+    ABIS+=("x86_64")
+fi
 
 echo ">> nodejs-mobile ${NODEJS_MOBILE_VERSION}"
 echo ">> project root: ${ROOT}"

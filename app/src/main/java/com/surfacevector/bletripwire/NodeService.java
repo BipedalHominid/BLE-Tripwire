@@ -276,6 +276,15 @@ public class NodeService extends Service {
                         NotificationManager.IMPORTANCE_HIGH);
                 alerts.setDescription("Heads-up when an unknown device enters your zone or approaches.");
                 alerts.enableVibration(true);
+                alerts.setVibrationPattern(new long[]{0, 400, 200, 400});
+                // Use the system's default notification sound (no bundled audio).
+                alerts.setSound(
+                        android.media.RingtoneManager.getDefaultUri(
+                                android.media.RingtoneManager.TYPE_NOTIFICATION),
+                        new android.media.AudioAttributes.Builder()
+                                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .build());
                 nm.createNotificationChannel(alerts);
             }
         }
@@ -377,6 +386,11 @@ public class NodeService extends Service {
     }
 
     private void pollThreatsAndNotify() throws IOException {
+        // Respect arm/schedule: if notifications aren't active right now, skip
+        // silently. We still update lastNotifiedState below so we don't fire a
+        // backlog of alerts the moment the user re-arms.
+        boolean notifyActive = fetchNotifyActive();
+
         HttpURLConnection c = (HttpURLConnection)
                 new URL("http://127.0.0.1:" + PORT + "/api/sensors/ble-tripwire/threats").openConnection();
         c.setConnectTimeout(4000);
@@ -409,12 +423,16 @@ public class NodeService extends Service {
                 if (isEscalated && !wasEscalated) {
                     escalations++;
                     if ("CLOSING".equals(state)) anyClosing = true;
-                    String shortId = id.replaceFirst("^DEV-", "");
-                    if (shortId.length() > 10) shortId = shortId.substring(0, 10);
+                    // Prefer the user's custom name if set, else short hex.
+                    String label = t.optString("name", "");
+                    if (label == null || label.isEmpty()) {
+                        label = id.replaceFirst("^DEV-", "");
+                        if (label.length() > 10) label = label.substring(0, 10);
+                    }
                     headline = "CLOSING".equals(state)
-                            ? "Signal approaching — " + shortId + " getting stronger ("
+                            ? "Signal approaching — " + label + " getting stronger ("
                               + t.optInt("rssi_last_dbm", 0) + " dBm)"
-                            : "Unknown device inside your zone — " + shortId + " ("
+                            : "Unknown device inside your zone — " + label + " ("
                               + t.optInt("rssi_max_dbm", 0) + " dBm)";
                 }
             }
@@ -422,12 +440,16 @@ public class NodeService extends Service {
             lastNotifiedState.keySet().retainAll(current.keySet());
             lastNotifiedState.putAll(current);
 
+            // Disarmed / outside schedule: state is tracked above, but we stay
+            // quiet — no notification, no sound.
+            if (!notifyActive) return;
+
             if (escalations > 0 && headline != null) {
                 String title = anyClosing ? "Tripwire — closing" : "Tripwire — alert";
                 String text = escalations == 1
                         ? headline
                         : escalations + " unknown signals escalated. " + headline;
-                postAlertNotification(title, text);
+                postAlertNotification(title, text, anyClosing);
             }
         } catch (org.json.JSONException e) {
             Log.w(TAG, "alert poll: bad JSON: " + e.getMessage());
@@ -436,7 +458,30 @@ public class NodeService extends Service {
         }
     }
 
-    private void postAlertNotification(String title, String text) {
+    /** Reads /status.notify_active so arm state + schedule gate notifications. */
+    private boolean fetchNotifyActive() {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection)
+                    new URL("http://127.0.0.1:" + PORT + "/api/sensors/ble-tripwire/status").openConnection();
+            c.setConnectTimeout(3000);
+            c.setReadTimeout(5000);
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream()))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = r.readLine()) != null) sb.append(line);
+                JSONObject d = new JSONObject(sb.toString());
+                // default true if the field is missing (fail safe = notify)
+                return d.optBoolean("notify_active", true);
+            }
+        } catch (Throwable t) {
+            return true; // if status is unreachable, err on the side of alerting
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private void postAlertNotification(String title, String text, boolean closing) {
         Intent open = new Intent(this, MainActivity.class);
         open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pi = PendingIntent.getActivity(
@@ -445,9 +490,21 @@ public class NodeService extends Service {
 
         Notification.Builder b;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Channel already carries HIGH importance + sound + vibration (see
+            // createNotificationChannel). Nothing extra needed per-notification
+            // on O+ — the channel governs sound/vibration.
             b = new Notification.Builder(this, ALERT_CHANNEL_ID);
         } else {
-            b = new Notification.Builder(this).setPriority(Notification.PRIORITY_HIGH);
+            // Pre-O: set sound + vibration directly on the notification, using
+            // the system's own default tones (no bundled audio files).
+            b = new Notification.Builder(this)
+                    .setPriority(Notification.PRIORITY_HIGH)
+                    .setSound(android.media.RingtoneManager.getDefaultUri(
+                            closing ? android.media.RingtoneManager.TYPE_ALARM
+                                    : android.media.RingtoneManager.TYPE_NOTIFICATION))
+                    .setVibrate(closing
+                            ? new long[]{0, 400, 200, 400, 200, 400}
+                            : new long[]{0, 300, 200, 300});
         }
         b.setSmallIcon(R.drawable.ic_stat_tripwire)
                 .setContentTitle(title)
