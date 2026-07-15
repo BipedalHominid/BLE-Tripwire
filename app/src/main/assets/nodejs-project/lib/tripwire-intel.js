@@ -1006,6 +1006,42 @@ const TRIPWIRE = {
   MIN_TREND_SAMPLES: 4,
 };
 
+// Runtime-adjustable sensitivity, persisted so slider changes survive app
+// restarts. Persisted values override the env/default values above.
+const TRIPWIRE_CONFIG_FILE = path.join(
+  process.env.BLE_TRIPWIRE_DATA_DIR || path.join(PROJECT_ROOT, "data", "tripwire"),
+  "config.json"
+);
+const TRIPWIRE_CONFIG_LIMITS = {
+  ZONE_DBM: { min: -95, max: -45 },
+  CONFIRM_SWEEPS: { min: 1, max: 6 },
+  APPROACH_DB: { min: 2, max: 12 },
+};
+function loadTripwireConfig() {
+  try {
+    if (!fs.existsSync(TRIPWIRE_CONFIG_FILE)) return;
+    const c = JSON.parse(fs.readFileSync(TRIPWIRE_CONFIG_FILE, "utf8"));
+    for (const k of Object.keys(TRIPWIRE_CONFIG_LIMITS)) {
+      const v = Number(c[k]);
+      const lim = TRIPWIRE_CONFIG_LIMITS[k];
+      if (Number.isFinite(v) && v >= lim.min && v <= lim.max) TRIPWIRE[k] = v;
+    }
+  } catch (e) {
+    console.warn(`[BLE-TRIPWIRE] config load failed: ${e.message}`);
+  }
+}
+function saveTripwireConfig() {
+  try {
+    ensureTripwireDataDir();
+    const out = {};
+    for (const k of Object.keys(TRIPWIRE_CONFIG_LIMITS)) out[k] = TRIPWIRE[k];
+    fs.writeFileSync(TRIPWIRE_CONFIG_FILE, JSON.stringify(out, null, 2));
+  } catch (e) {
+    console.warn(`[BLE-TRIPWIRE] config save failed: ${e.message}`);
+  }
+}
+loadTripwireConfig();
+
 function _twMean(a) { return a.length ? a.reduce((x, y) => x + y, 0) / a.length : null; }
 
 function computeThreats(now = Date.now()) {
@@ -1387,6 +1423,115 @@ export function installTripwire(app) {
   });
 
   // AUDIT VERIFY (read-only integrity check)
+  // AUDIT LOG (read) — most-recent-first list of audit entries for the
+  // history view. The chain itself stays append-only on disk.
+  app.get("/api/sensors/ble-tripwire/audit", (req, res) => {
+    try {
+      const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+      let entries = [];
+      if (fs.existsSync(TRIPWIRE_AUDIT_FILE)) {
+        entries = fs
+          .readFileSync(TRIPWIRE_AUDIT_FILE, "utf8")
+          .split("\n")
+          .filter(Boolean)
+          .slice(-limit)
+          .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+          .filter(Boolean)
+          .reverse();
+      }
+      res.json({ ok: true, count: entries.length, entries });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: String(err.message || err) });
+    }
+  });
+
+  // CONFIG (runtime sensitivity) — read + update, persisted across restarts.
+  app.get("/api/sensors/ble-tripwire/config", (_req, res) => {
+    res.json({
+      ok: true,
+      config: {
+        zone_dbm: TRIPWIRE.ZONE_DBM,
+        confirm_sweeps: TRIPWIRE.CONFIRM_SWEEPS,
+        approach_db: TRIPWIRE.APPROACH_DB,
+      },
+      limits: {
+        zone_dbm: TRIPWIRE_CONFIG_LIMITS.ZONE_DBM,
+        confirm_sweeps: TRIPWIRE_CONFIG_LIMITS.CONFIRM_SWEEPS,
+        approach_db: TRIPWIRE_CONFIG_LIMITS.APPROACH_DB,
+      },
+    });
+  });
+
+  app.post("/api/sensors/ble-tripwire/config", (req, res) => {
+    try {
+      const body = req.body || {};
+      const map = {
+        zone_dbm: "ZONE_DBM",
+        confirm_sweeps: "CONFIRM_SWEEPS",
+        approach_db: "APPROACH_DB",
+      };
+      const applied = {};
+      for (const [key, prop] of Object.entries(map)) {
+        if (body[key] === undefined) continue;
+        const v = Number(body[key]);
+        const lim = TRIPWIRE_CONFIG_LIMITS[prop];
+        if (!Number.isFinite(v) || v < lim.min || v > lim.max) {
+          return res.status(400).json({
+            ok: false,
+            error: `${key} out of range (${lim.min}..${lim.max})`,
+          });
+        }
+        TRIPWIRE[prop] = prop === "ZONE_DBM" ? Math.round(v) : Math.round(v);
+        applied[key] = TRIPWIRE[prop];
+      }
+      if (Object.keys(applied).length) {
+        saveTripwireConfig();
+        appendAudit({ event: "config_change", actor: actorOf(req), applied });
+      }
+      res.json({
+        ok: true,
+        config: {
+          zone_dbm: TRIPWIRE.ZONE_DBM,
+          confirm_sweeps: TRIPWIRE.CONFIRM_SWEEPS,
+          approach_db: TRIPWIRE.APPROACH_DB,
+        },
+      });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: String(err.message || err) });
+    }
+  });
+
+  // BASELINE: remove a single device (un-trust one emitter without wiping
+  // the whole baseline).
+  app.delete("/api/sensors/ble-tripwire/baseline/device/:id", (req, res) => {
+    try {
+      const id = String(req.params.id || "").trim();
+      if (!id) return res.status(400).json({ ok: false, error: "missing device id" });
+      const baseline = readTripwireBaseline();
+      if (!baseline) return res.status(404).json({ ok: false, error: "no baseline captured" });
+
+      const before =
+        (baseline.device_ids && baseline.device_ids.length) ||
+        (baseline.devices && baseline.devices.length) || 0;
+      if (Array.isArray(baseline.devices))
+        baseline.devices = baseline.devices.filter((d) => d.anonymized_id !== id);
+      if (Array.isArray(baseline.device_ids))
+        baseline.device_ids = baseline.device_ids.filter((x) => x !== id);
+      const after =
+        (baseline.device_ids && baseline.device_ids.length) ||
+        (baseline.devices && baseline.devices.length) || 0;
+      if (after === before)
+        return res.status(404).json({ ok: false, error: "device not in baseline" });
+
+      baseline.total_devices = after;
+      writeTripwireBaseline(baseline);
+      appendAudit({ event: "baseline_device_removed", actor: actorOf(req), anonymized_id: id });
+      res.json({ ok: true, removed: id, remaining: after });
+    } catch (err) {
+      res.status(500).json({ ok: false, error: String(err.message || err) });
+    }
+  });
+
   app.get("/api/sensors/ble-tripwire/audit/verify", (_req, res) => {
     res.json({ ok: true, ...verifyAuditChain() });
   });

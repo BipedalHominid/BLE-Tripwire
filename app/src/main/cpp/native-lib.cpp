@@ -70,7 +70,7 @@ static void redirect_stdio_to_logcat() {
 
 // ---- JNI entrypoint -----------------------------------------------------------
 extern "C" JNIEXPORT jint JNICALL
-Java_com_surfacevector_bluesentinel_NodeBridge_startNodeWithArguments(
+Java_com_surfacevector_bletripwire_NodeBridge_startNodeWithArguments(
         JNIEnv *env, jobject /* this */, jobjectArray arguments) {
 
     redirect_stdio_to_logcat();

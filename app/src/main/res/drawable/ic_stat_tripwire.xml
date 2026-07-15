@@ -4,13 +4,18 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="#FFFFFF">
+    <!-- status-bar mark: same plucked-wire silhouette, single color (required) -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M12,12m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0" />
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M2,14 L7,14 C9,14 9.5,8.5 12,8.5 C14.5,8.5 15,14 17,14 L22,14" />
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M12,6.5c-3.04,0 -5.5,2.46 -5.5,5.5c0,1.52 0.62,2.9 1.61,3.89l1.06,-1.06C8.46,14.09 8,13.1 8,12c0,-2.21 1.79,-4 4,-4c1.1,0 2.09,0.46 2.83,1.17l1.06,-1.06C14.9,7.12 13.52,6.5 12,6.5z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M12,2C6.48,2 2,6.48 2,12c0,2.76 1.12,5.26 2.93,7.07l1.06,-1.06C4.46,16.46 3.5,14.34 3.5,12C3.5,7.31 7.31,3.5 12,3.5c2.34,0 4.46,0.96 5.99,2.51l1.06,-1.06C17.26,3.12 14.76,2 12,2z" />
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round"
+        android:strokeAlpha="0.6"
+        android:fillColor="#00000000"
+        android:pathData="M9,5.5 C10,4 14,4 15,5.5" />
 </vector>
